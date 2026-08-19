@@ -1,16 +1,24 @@
 --------------------------------------------------------------------------------
 --                SELF-UPDATING BOOTSTRAPPER & RUNNER                         --
 --------------------------------------------------------------------------------
-local GITHUB_BASE = "https://raw.githubusercontent.com/krzysztof-png/minecraft-CC-script/refs/heads/main/"
+local GITHUB_BASE = "https://raw.githubusercontent.com/krzysztof-png/minecraft-CC-script/main/"
 local CONFIG_FILE = "system_config.json"
 
 if not http then
-    error("Blad: API HTTP w ComputerCraft jest wylaczone!")
+    error("Blad: API HTTP w ComputerCraft jest wylaczone na serwerze!")
 end
 
 local function pobierzZGitHuba(nazwaPliku)
-    local url = GITHUB_BASE .. nazwaPliku .. "?t=" .. os.epoch("utc")
-    local res = http.get(url)
+    local unikalnyCzas = os.epoch("utc")
+    local url = GITHUB_BASE .. nazwaPliku .. "?nocache=" .. unikalnyCzas
+    
+    local naglowki = {
+        ["Cache-Control"] = "no-cache, no-store, must-revalidate",
+        ["Pragma"] = "no-cache",
+        ["Expires"] = "0"
+    }
+
+    local res = http.get(url, naglowki)
     if res then
         local zawartosc = res.readAll()
         res.close()
@@ -114,7 +122,14 @@ end
 
 sleep(0.5)
 
--- 4. URUCHOMIENIE
+-- 4. URUCHOMIENIE (Z OBSŁUGĄ MONITORA DLA SERWERA)
 term.clear()
 term.setCursorPos(1, 1)
-shell.run(docelowyPlik)
+
+if config.rola == "server" and peripheral.getType("right") == "monitor" then
+    local mon = peripheral.wrap("right")
+    pcall(function() mon.setTextScale(0.8) end)
+    shell.run("monitor", "right", docelowyPlik)
+else
+    shell.run(docelowyPlik)
+end
