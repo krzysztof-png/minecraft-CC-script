@@ -1,61 +1,115 @@
+--------------------------------------------------------------------------------
+--                         KONFIGURACJA SERWERA                               --
+--------------------------------------------------------------------------------
+local PROTOKOL     = "kolej_net"
+local NAZWA_HOSTA  = "centrala_glowna"
+local TIMEOUT_SEK  = 6   -- Czas w sekundach po którym stacja przechodzi w Offline
+local MAX_LOGOW    = 6   -- Maksymalna liczba ostatnich zdarzeń na ekranie
+--------------------------------------------------------------------------------
+
 local modem = peripheral.find("modem")
 if not modem then
-    error("Blad: Nie znaleziono modemu na obudowie!")
+    error("Blad: Nie wykryto modemu (Wireless/Ender Modem)!")
 end
 rednet.open(peripheral.getName(modem))
-rednet.host("stacje_kolejowe", "serwer_glowny")
+rednet.host(PROTOKOL, NAZWA_HOSTA)
 
-local TIMEOUT = 6 -- Liczba sekund do uznania stacji za rozłączoną
-local stacje = {}
+local klienci = {}
+local logiZdarzen = {}
 
-local function odswiezEkran()
-    term.clear()
-    term.setCursorPos(1, 1)
-    print("========================================")
-    print("      CENTRALA: POLACZONE STACJE        ")
-    print("========================================")
-    print(string.format("%-5s | %-16s | %-8s", "ID", "NAZWA STACJI", "STATUS"))
-    print("----------------------------------------")
-
-    local teraz = os.clock()
-    local aktywne = 0
-
-    for id, dane in pairs(stacje) do
-        if (teraz - dane.lastPing) <= TIMEOUT then
-            aktywne = aktywne + 1
-            print(string.format("#%-4d | %-16s | ONLINE (%s)", id, dane.nazwa, dane.ostatniaGodzina))
-        end
+local function dodajLog(tekst)
+    local godzina = textutils.formatTime(os.time(), true)
+    table.insert(logiZdarzen, 1, string.format("[%s] %s", godzina, tekst))
+    if #logiZdarzen > MAX_LOGOW then
+        table.remove(logiZdarzen)
     end
-
-    if aktywne == 0 then
-        print("  Brak aktywnych stacji w zasiegu...")
-    end
-
-    print("----------------------------------------")
-    print("Lacznie polaczonych: " .. aktywne)
-    print("Czas serwera: " .. textutils.formatTime(os.time(), true))
 end
 
-local timerId = os.startTimer(1)
-odswiezEkran()
+local function odswiezInterfejs()
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("==================================================")
+    print("         CENTRALA KOLEJOWA - MONITOR SYSTEMU      ")
+    print("==================================================")
+    print(string.format("%-4s | %-14s | %-9s | %-8s", "ID", "NAZWA", "TRYB", "STATUS"))
+    print("--------------------------------------------------")
+
+    local teraz = os.clock()
+    local onlineCount = 0
+
+    for id, dane in pairs(klienci) do
+        local online = (teraz - dane.lastSeen) <= TIMEOUT_SEK
+        local statusStr = online and dane.status or "OFFLINE"
+        if online then onlineCount = onlineCount + 1 end
+
+        print(string.format("#%-3d | %-14s | %-9s | %-8s", 
+            id, 
+            dane.nazwa:sub(1, 14), 
+            dane.tryb:sub(1, 9), 
+            statusStr:sub(1, 8)
+        ))
+    end
+
+    if next(klienci) == nil then
+        print("  Oczekiwanie na polaczenia stacji / klientow...")
+    end
+
+    print("--------------------------------------------------")
+    print("OSTATNIE ZDARZENIA I PRZEJAZDY:")
+    for _, log in ipairs(logiZdarzen) do
+        print(" " .. log)
+    end
+    print("--------------------------------------------------")
+    print(string.format("Aktywne wezly: %d | Czas: %s", onlineCount, textutils.formatTime(os.time(), true)))
+end
+
+-- Timer odświeżania interfejsu (co 1 sekundę)
+local timerOdswiezania = os.startTimer(1)
+dodajLog("Serwer glowny uruchomiony.")
+odswiezInterfejs()
 
 while true do
     local event, p1, p2, p3 = os.pullEvent()
 
-    if event == "rednet_message" then
-        local senderId, msg, protocol = p1, p2, p3
-        if protocol == "stacje_kolejowe" and type(msg) == "table" and msg.typ == "PING" then
-            stacje[senderId] = {
-                nazwa = msg.nazwa or ("Stacja_" .. senderId),
-                lastPing = os.clock(),
-                ostatniaGodzina = textutils.formatTime(os.time(), true)
-            }
-            rednet.send(senderId, { status = "PONG", czas = os.time() }, "stacje_kolejowe")
-            odswiezEkran()
+    -- 1. Obsługa wiadomości Rednet (wielozdarzeniowość)
+    if event == "rednet_message" and p3 == PROTOKOL then
+        local senderId, msg = p1, p2
+
+        if type(msg) == "table" then
+            -- Rejestracja / Aktualizacja stanu węzła
+            if msg.typ == "PING" then
+                klienci[senderId] = {
+                    nazwa    = msg.nazwa or ("Klient_" .. senderId),
+                    tryb     = msg.tryb or "BEACON",
+                    status   = msg.status or "ONLINE",
+                    lastSeen = os.clock()
+                }
+                rednet.send(senderId, { odp = "PONG_OK" }, PROTOKOL)
+
+            -- Wykrycie przejazdu pociągu przez Train Observer
+            elseif msg.typ == "PRZEJAZD_POCIAGU" then
+                local punkt = msg.nazwa or ("ID #" .. senderId)
+                dodajLog("PRZEJAZD: Pociag minal " .. punkt)
+                odswiezInterfejs()
+
+            -- Obsługa zdarzeń awaryjnych / customowych
+            elseif msg.typ == "ALARM" then
+                dodajLog("ALARM ze stacji " .. (msg.nazwa or senderId) .. ": " .. tostring(msg.powod))
+                odswiezInterfejs()
+            end
         end
 
-    elseif event == "timer" and p1 == timerId then
-        odswiezEkran()
-        timerId = os.startTimer(1)
+    -- 2. Timer cykliczny UI i sprawdzanie timeoutów
+    elseif event == "timer" and p1 == timerOdswiezania then
+        odswiezInterfejs()
+        timerOdswiezania = os.startTimer(1)
+
+    -- 3. Obsługa klawiatury na serwerze (np. czyszczenie logów)
+    elseif event == "key" then
+        if p1 == keys.c then
+            logiZdarzen = {}
+            dodajLog("Wyczyszczono rejestr zdarzen.")
+            odswiezInterfejs()
+        end
     end
 end
