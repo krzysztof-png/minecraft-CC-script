@@ -5,7 +5,7 @@ local GITHUB_BASE = "https://raw.githubusercontent.com/krzysztof-png/minecraft-C
 local CONFIG_FILE = "system_config.json"
 
 if not http then
-    error("Blad: API HTTP w ComputerCraft jest wylaczone na serwerze!")
+    error("Blad: API HTTP w ComputerCraft jest wylaczone!")
 end
 
 local function pobierzZGitHuba(nazwaPliku)
@@ -73,14 +73,16 @@ local function wybierzRole()
     print("Wybierz role tego komputera:")
     print(" [1] Serwer Centralny (server.lua)")
     print(" [2] Klient / Posterunek (client.lua)")
+    print(" [3] Mobilny Terminal Logow (log.lua)")
     print("----------------------------------------")
-    write("Twoj wybor [1/2]: ")
+    write("Twoj wybor [1/2/3]: ")
 
     local rola = nil
     while not rola do
         local event, char = os.pullEvent("char")
         if char == "1" then rola = "server" end
         if char == "2" then rola = "client" end
+        if char == "3" then rola = "log" end
     end
 
     local cfg = { rola = rola }
@@ -105,7 +107,7 @@ else
     end
 end
 
--- 3. POBIERANIE WŁAŚCIWEGO SKRYPTU (server.lua / client.lua)
+-- 3. POBIERANIE WŁAŚCIWEGO SKRYPTU (server.lua / client.lua / log.lua)
 local docelowyPlik = config.rola .. ".lua"
 print("Pobieranie aktualizacji: " .. docelowyPlik .. "...")
 
@@ -122,14 +124,7 @@ end
 
 sleep(0.5)
 
--- 4. URUCHOMIENIE (Z OBSŁUGĄ MONITORA DLA SERWERA)
+-- 4. URUCHOMIENIE
 term.clear()
 term.setCursorPos(1, 1)
-
-if config.rola == "server" and peripheral.getType("right") == "monitor" then
-    local mon = peripheral.wrap("right")
-    pcall(function() mon.setTextScale(0.8) end)
-    shell.run("monitor", "right", docelowyPlik)
-else
-    shell.run(docelowyPlik)
-end
+shell.run(docelowyPlik)
