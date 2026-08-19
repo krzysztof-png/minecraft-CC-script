@@ -1,52 +1,61 @@
--- Automatyczne wykrywanie i otwieranie modemu
-local modemSide = nil
-for _, side in ipairs(rs.getSides()) do
-    if peripheral.getType(side) == "modem" then
-        modemSide = side
-        break
+local modem = peripheral.find("modem")
+if not modem then
+    error("Blad: Nie znaleziono modemu na obudowie!")
+end
+rednet.open(peripheral.getName(modem))
+rednet.host("stacje_kolejowe", "serwer_glowny")
+
+local TIMEOUT = 6 -- Liczba sekund do uznania stacji za rozłączoną
+local stacje = {}
+
+local function odswiezEkran()
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("========================================")
+    print("      CENTRALA: POLACZONE STACJE        ")
+    print("========================================")
+    print(string.format("%-5s | %-16s | %-8s", "ID", "NAZWA STACJI", "STATUS"))
+    print("----------------------------------------")
+
+    local teraz = os.clock()
+    local aktywne = 0
+
+    for id, dane in pairs(stacje) do
+        if (teraz - dane.lastPing) <= TIMEOUT then
+            aktywne = aktywne + 1
+            print(string.format("#%-4d | %-16s | ONLINE (%s)", id, dane.nazwa, dane.ostatniaGodzina))
+        end
     end
+
+    if aktywne == 0 then
+        print("  Brak aktywnych stacji w zasiegu...")
+    end
+
+    print("----------------------------------------")
+    print("Lacznie polaczonych: " .. aktywne)
+    print("Czas serwera: " .. textutils.formatTime(os.time(), true))
 end
 
-if not modemSide then
-    error("Blad: Nie znaleziono modemu!")
-end
-
-rednet.open(modemSide)
-rednet.host("siec_kolejowa", "Główny Serwer")
-
-term.clear()
-term.setCursorPos(1, 1)
-print("=== SERWER AKTYWNY ===")
-print("Nasluchiwanie na porcie rednet...")
-
-local klienci = {}
+local timerId = os.startTimer(1)
+odswiezEkran()
 
 while true do
-    local senderId, msg, protocol = rednet.receive("siec_kolejowa")
-    
-    if type(msg) == "table" then
-        local typ = msg.typ
-        local dane = msg.dane or ""
-        
-        -- Rejestracja / Aktualizacja statusu klienta
-        klienci[senderId] = {
-            nazwa = msg.nazwa or ("Klient #" .. senderId),
-            ostatni_kontakt = os.time(),
-            status = dane
-        }
-        
-        print(string.format("[%s] ID %d: %s -> %s", os.date("%T"), senderId, typ, tostring(dane)))
-        
-        -- Obsługa zapytań
-        if typ == "PING" then
-            rednet.send(senderId, { status = "OK", odp = "PONG" }, "siec_kolejowa")
-            
-        elseif typ == "ZAPYTANIE" then
-            rednet.send(senderId, { status = "OK", odp = "Dane odebrane poprawnie" }, "siec_kolejowa")
-            
-        elseif typ == "ROZKAZ" then
-            -- Przykład: przekazanie komendy dalej / przetworzenie
-            rednet.send(senderId, { status = "OK", odp = "Rozkaz wykonany" }, "siec_kolejowa")
+    local event, p1, p2, p3 = os.pullEvent()
+
+    if event == "rednet_message" then
+        local senderId, msg, protocol = p1, p2, p3
+        if protocol == "stacje_kolejowe" and type(msg) == "table" and msg.typ == "PING" then
+            stacje[senderId] = {
+                nazwa = msg.nazwa or ("Stacja_" .. senderId),
+                lastPing = os.clock(),
+                ostatniaGodzina = textutils.formatTime(os.time(), true)
+            }
+            rednet.send(senderId, { status = "PONG", czas = os.time() }, "stacje_kolejowe")
+            odswiezEkran()
         end
+
+    elseif event == "timer" and p1 == timerId then
+        odswiezEkran()
+        timerId = os.startTimer(1)
     end
 end
