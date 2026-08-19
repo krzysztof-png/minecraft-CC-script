@@ -1,95 +1,173 @@
 --------------------------------------------------------------------------------
---                         KONFIGURACJA KLIENTA                               --
+--                         UNIWERSALNY KLIENT KOLEJOWY                       --
 --------------------------------------------------------------------------------
-local CONFIG = {
-    nazwaKlienta = "Posterunek_01",   -- Unikalna nazwa punktu / stacji
-    protokol     = "kolej_net",       -- Nazwa protokołu sieciowego
-    serwerNazwa  = "centrala_glowna", -- Identyfikator serwera (hostname)
+local CONFIG_FILE = "client_config.json"
+local PROTOKOL    = "kolej_net"
+local SERWER_HOST = "centrala_glowna"
 
-    -- TRYBY DZIAŁANIA:
-    -- "OBSERVER" - Czujnik przejazdu (Train Observer na redstone)
-    -- "STACJA"   - Terminal peronowy Create (wymaga Train Station)
-    -- "BEACON"   - Zwykły węzeł meldunkowy / wskaźnik obecności
-    tryb = "OBSERVER",
+local function wczytajConfig()
+    if fs.exists(CONFIG_FILE) then
+        local f = fs.open(CONFIG_FILE, "r")
+        local dane = textutils.unserializeJSON(f.readAll())
+        f.close()
+        return dane
+    end
+    return nil
+end
 
-    -- Opcje dla trybu OBSERVER:
-    stronaRedstone = "auto", -- "auto", "top", "bottom", "left", "right", "front", "back"
+local function zapiszConfig(cfg)
+    local f = fs.open(CONFIG_FILE, "w")
+    f.write(textutils.serializeJSON(cfg))
+    f.close()
+end
 
-    -- Częstotliwość heartbeat / ping (w sekundach)
-    interwalPing = 2
-}
---------------------------------------------------------------------------------
+local function kreatorKonfiguracji()
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("========================================")
+    print("       KREATOR KONFIGURACJI KLIENTA     ")
+    print("========================================")
+
+    -- 1. Nazwa stacji / posterunku
+    write("Podaj nazwe punktu: ")
+    local nazwa = read()
+    if nazwa == "" then nazwa = "Posterunek_" .. os.getComputerID() end
+
+    -- 2. Wybór trybu pracy
+    print("\nWybierz tryb pracy:")
+    print(" [1] OBSERVER (Train Observer / Redstone)")
+    print(" [2] STACJA   (Create Train Station)")
+    print(" [3] BEACON   (Zwykly wezel statusowy)")
+    write("Wybor [1-3]: ")
+
+    local tryb = "OBSERVER"
+    while true do
+        local _, ch = os.pullEvent("char")
+        if ch == "1" then tryb = "OBSERVER"; break end
+        if ch == "2" then tryb = "STACJA";   break end
+        if ch == "3" then tryb = "BEACON";   break end
+    end
+    print(tryb)
+
+    -- 3. Strona sygnału dla trybu OBSERVER
+    local stronaRS = "auto"
+    if tryb == "OBSERVER" then
+        print("\nStrona wejscia Redstone:")
+        print(" [1] Auto (dowolna strona)")
+        print(" [2] Back (tyl)")
+        print(" [3] Left (lewo)")
+        print(" [4] Right (prawo)")
+        print(" [5] Top / Bottom")
+        write("Wybor [1-5]: ")
+
+        while true do
+            local _, ch = os.pullEvent("char")
+            if ch == "1" then stronaRS = "auto";   break end
+            if ch == "2" then stronaRS = "back";   break end
+            if ch == "3" then stronaRS = "left";   break end
+            if ch == "4" then stronaRS = "right";  break end
+            if ch == "5" then stronaRS = "top";    break end
+        end
+        print(stronaRS)
+    end
+
+    local cfg = {
+        nazwaKlienta = nazwa,
+        tryb = tryb,
+        stronaRedstone = stronaRS,
+        interwalPing = 2
+    }
+    zapiszConfig(cfg)
+    return cfg
+end
+
+-- Sprawdzanie i wczytywanie konfiguracji
+local config = wczytajConfig()
+if not config then
+    config = kreatorKonfiguracji()
+else
+    print("Punkt: " .. config.nazwaKlienta .. " | Tryb: " .. config.tryb)
+    print("Przytrzymaj [R] by zmienic konfiguracje...")
+    local timer = os.startTimer(1.5)
+    while true do
+        local event, p1 = os.pullEvent()
+        if event == "key" and p1 == keys.r then
+            config = kreatorKonfiguracji()
+            break
+        elseif event == "timer" and p1 == timer then
+            break
+        end
+    end
+end
 
 -- Inicjalizacja modemu
 local modem = peripheral.find("modem")
 if not modem then
-    error("Blad: Nie wykryto modemu (Wireless/Ender Modem)!")
+    error("Blad: Nie wykryto modemu!")
 end
 rednet.open(peripheral.getName(modem))
 
 local stationPeripheral = nil
-if CONFIG.tryb == "STACJA" then
+if config.tryb == "STACJA" then
     stationPeripheral = peripheral.find("create:station") or peripheral.find("Create_Station")
 end
 
 local function czySygnalRedstone()
-    if CONFIG.stronaRedstone == "auto" then
+    if config.stronaRedstone == "auto" then
         for _, side in ipairs(rs.getSides()) do
             if rs.getInput(side) then return true end
         end
         return false
     else
-        return rs.getInput(CONFIG.stronaRedstone)
+        return rs.getInput(config.stronaRedstone)
     end
 end
 
--- Rysowanie interfejsu klienta
 local function rysujEkran(serverId, statusInfo)
     term.clear()
     term.setCursorPos(1, 1)
     print("========================================")
-    print(" KLIENT: " .. CONFIG.nazwaKlienta)
-    print(" TRYB:   " .. CONFIG.tryb)
+    print(" KLIENT: " .. config.nazwaKlienta)
+    print(" TRYB:   " .. config.tryb .. " (" .. config.stronaRedstone .. ")")
     print(" SERWER: " .. (serverId and ("ID #" .. serverId) or "Szukanie..."))
     print("========================================")
-    print("Status: " .. (statusInfo or "Dziala stabilnie"))
+    print("Status: " .. (statusInfo or "OK"))
     print("----------------------------------------")
 end
 
--- Główna pętla
 rysujEkran(nil, "Laczenie z centrala...")
-local serverId = rednet.lookup(CONFIG.protokol, CONFIG.serwerNazwa)
+local serverId = rednet.lookup(PROTOKOL, SERWER_HOST)
 while not serverId do
     sleep(1.5)
-    serverId = rednet.lookup(CONFIG.protokol, CONFIG.serwerNazwa)
+    serverId = rednet.lookup(PROTOKOL, SERWER_HOST)
 end
 
 rysujEkran(serverId, "Polaczono z centrala")
 
-local pingTimer = os.startTimer(CONFIG.interwalPing)
+local pingTimer = os.startTimer(config.interwalPing)
 local bylSygnalRedstone = false
 
 while true do
     local event, p1, p2, p3 = os.pullEvent()
 
-    -- 1. Obsługa interwału wysyłania PING / Heartbeat
+    -- 1. Heartbeat do serwera
     if event == "timer" and p1 == pingTimer then
         local statusPayload = "OK"
-        if CONFIG.tryb == "STACJA" and stationPeripheral then
-            statusPayload = stationPeripheral.hasTrain() and "POCIAG_NA_PERONIE" or "WOLNY"
+        if config.tryb == "STACJA" and stationPeripheral then
+            statusPayload = stationPeripheral.hasTrain() and "POCIAG" or "WOLNY"
         end
 
         rednet.send(serverId, {
             typ = "PING",
-            nazwa = CONFIG.nazwaKlienta,
-            tryb = CONFIG.tryb,
+            nazwa = config.nazwaKlienta,
+            tryb = config.tryb,
             status = statusPayload
-        }, CONFIG.protokol)
+        }, PROTOKOL)
 
-        pingTimer = os.startTimer(CONFIG.interwalPing)
+        pingTimer = os.startTimer(config.interwalPing)
 
-    -- 2. Obsługa detekcji pociągu przez Train Observer (Redstone)
-    elseif event == "redstone" and CONFIG.tryb == "OBSERVER" then
+    -- 2. Wykrywanie Train Observera
+    elseif event == "redstone" and config.tryb == "OBSERVER" then
         local jestSygnal = czySygnalRedstone()
 
         if jestSygnal and not bylSygnalRedstone then
@@ -98,24 +176,21 @@ while true do
 
             rednet.send(serverId, {
                 typ = "PRZEJAZD_POCIAGU",
-                nazwa = CONFIG.nazwaKlienta,
+                nazwa = config.nazwaKlienta,
                 czas = czasGry
-            }, CONFIG.protokol)
+            }, PROTOKOL)
 
-            rysujEkran(serverId, "Wykryto przejazd o " .. czasGry)
+            rysujEkran(serverId, "Wykryto pociag o " .. czasGry)
 
         elseif not jestSygnal and bylSygnalRedstone then
             bylSygnalRedstone = false
         end
 
-    -- 3. Odbieranie rozkazów lub potwierdzeń od serwera
-    elseif event == "rednet_message" and p3 == CONFIG.protokol then
-        local senderId, msg = p1, p2
-        if type(msg) == "table" and msg.odp then
-            -- Możliwość reakcji na polecenia z centrali (np. wysłanie pociągu)
-            if msg.rozkaz == "WYSLIJ_POCIAG" and CONFIG.tryb == "STACJA" and stationPeripheral then
-                -- Kod wgrywania rozkładu / odprawy
-            end
+    -- 3. Odpowiedzi z serwera
+    elseif event == "rednet_message" and p3 == PROTOKOL then
+        local _, msg = p1, p2
+        if type(msg) == "table" and msg.odp == "PONG_OK" then
+            -- Polaczenie stabilne
         end
     end
 end
