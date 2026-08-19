@@ -1,4 +1,18 @@
 --------------------------------------------------------------------------------
+--                         KONFIGURACJA MONITORA                              --
+--------------------------------------------------------------------------------
+local STRONA_MONITORA = "right"
+local SKALA_TEKSTU    = 0.8 -- CC obsługuje kroki co 0.5 (np. 0.5, 1.0), 0.8 zaokrągli do najbliższej
+
+if peripheral.getType(STRONA_MONITORA) == "monitor" then
+    local mon = peripheral.wrap(STRONA_MONITORA)
+    pcall(function() mon.setTextScale(SKALA_TEKSTU) end)
+    term.redirect(mon)
+    term.clear()
+    term.setCursorPos(1, 1)
+end
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 --                         KONFIGURACJA SERWERA                               --
 --------------------------------------------------------------------------------
 local PROTOKOL     = "kolej_net"
