@@ -2,7 +2,7 @@
 --                         KONFIGURACJA MONITORA                              --
 --------------------------------------------------------------------------------
 local STRONA_MONITORA = "right"
-local SKALA_TEKSTU    = 0.8
+local SKALA_TEKSTU    = 0.8 -- W CC wartości to wielokrotności 0.5 (zostanie zaokrąglona)
 
 if peripheral.getType(STRONA_MONITORA) == "monitor" then
     local mon = peripheral.wrap(STRONA_MONITORA)
@@ -17,8 +17,8 @@ end
 --------------------------------------------------------------------------------
 local PROTOKOL     = "kolej_net"
 local NAZWA_HOSTA  = "centrala_glowna"
-local TIMEOUT_SEK  = 6   -- Czas w sekundach po którym stacja przechodzi w Offline
-local MAX_LOGOW    = 6   -- Maksymalna liczba ostatnich zdarzeń na ekranie
+local TIMEOUT_SEK  = 6   -- Czas w sekundach do uznania węzła za OFFLINE
+local MAX_LOGOW    = 8   -- Maksymalna liczba wpisów w historii
 --------------------------------------------------------------------------------
 
 local modem = peripheral.find("modem")
@@ -31,6 +31,7 @@ rednet.host(PROTOKOL, NAZWA_HOSTA)
 local klienci = {}
 local logiZdarzen = {}
 
+-- Funkcja dodawania wpisu i natychmiastowego broadcastu do urządzeń mobilnych
 local function dodajLog(tekst, kategoria)
     local godzina = textutils.formatTime(os.time(), true)
     local wpis = string.format("[%s] %s", godzina, tekst)
@@ -40,7 +41,7 @@ local function dodajLog(tekst, kategoria)
         table.remove(logiZdarzen)
     end
 
-    -- Rozsyłanie zdarzenia w czasie rzeczywistym do Pocket PC
+    -- Rozsyłanie wpisu na żywo do Pocket PC
     rednet.broadcast({
         typ = "NOWY_LOG",
         tekst = wpis,
@@ -48,6 +49,7 @@ local function dodajLog(tekst, kategoria)
     }, PROTOKOL)
 end
 
+-- Rysowanie głównego interfejsu serwera / monitora
 local function odswiezInterfejs()
     term.clear()
     term.setCursorPos(1, 1)
@@ -74,19 +76,23 @@ local function odswiezInterfejs()
     end
 
     if next(klienci) == nil then
-        print("  Oczekiwanie na polaczenia stacji / klientow...")
+        print("  Oczekiwanie na rejestracje wezlow sieci...")
     end
 
     print("--------------------------------------------------")
-    print("OSTATNIE ZDARZENIA I PRZEJAZDY:")
-    for _, log in ipairs(logiZdarzen) do
-        print(" " .. log)
+    print("OSTATNIE ZDARZENIA I TELEMETRIA:")
+    if #logiZdarzen == 0 then
+        print("  Brak zarejestrowanych zdarzen.")
+    else
+        for _, log in ipairs(logiZdarzen) do
+            print(" " .. log)
+        end
     end
     print("--------------------------------------------------")
-    print(string.format("Aktywne wezly: %d | Czas: %s", onlineCount, textutils.formatTime(os.time(), true)))
+    print(string.format("Aktywne wezly: %d | Czas gry: %s | [C] Reset logow", onlineCount, textutils.formatTime(os.time(), true)))
 end
 
--- Timer odświeżania interfejsu (co 1 sekundę)
+-- Inicjalizacja pętli
 local timerOdswiezania = os.startTimer(1)
 dodajLog("Serwer glowny uruchomiony.", "SYSTEM")
 odswiezInterfejs()
@@ -94,12 +100,12 @@ odswiezInterfejs()
 while true do
     local event, p1, p2, p3 = os.pullEvent()
 
-    -- 1. Obsługa wiadomości Rednet (wielozdarzeniowość)
+    -- 1. Obsługa pakietów Rednet
     if event == "rednet_message" and p3 == PROTOKOL then
         local senderId, msg = p1, p2
 
         if type(msg) == "table" then
-            -- Rejestracja / Heartbeat węzła
+            -- Heartbeat i meldowanie węzłów
             if msg.typ == "PING" then
                 klienci[senderId] = {
                     nazwa    = msg.nazwa or ("Klient_" .. senderId),
@@ -108,33 +114,43 @@ while true do
                     lastSeen = os.clock()
                 }
                 rednet.send(senderId, { odp = "PONG_OK" }, PROTOKOL)
+                -- Synchronizacja listy urządzeń z podłączonymi Pocket PC
+                rednet.broadcast({ typ = "SYNC_KLIENCI", klienci = klienci }, PROTOKOL)
 
-            -- Wykrycie przejazdu pociągu przez Train Observer
+            -- Sygnał z Train Observera
             elseif msg.typ == "PRZEJAZD_POCIAGU" then
                 local punkt = msg.nazwa or ("ID #" .. senderId)
                 dodajLog("PRZEJAZD: Pociag minal " .. punkt, "PRZEJAZD")
                 odswiezInterfejs()
 
-            -- Pobieranie historii logów przez Pocket PC
+            -- Prośba o pełny pakiet danych (używane przy przełączaniu kart w Pocket PC)
+            elseif msg.typ == "POBIERZ_DANE" then
+                rednet.send(senderId, {
+                    typ = "PELNE_DANE",
+                    klienci = klienci,
+                    logi = logiZdarzen
+                }, PROTOKOL)
+
+            -- Prośba o samą historię logów
             elseif msg.typ == "POBIERZ_LOGI" then
                 rednet.send(senderId, {
                     typ = "HISTORIA_LOGOW",
                     logi = logiZdarzen
                 }, PROTOKOL)
 
-            -- Zdarzenia awaryjne / alarmy
+            -- Zdarzenia awaryjne i alarmy
             elseif msg.typ == "ALARM" then
-                dodajLog("ALARM ze stacji " .. (msg.nazwa or senderId) .. ": " .. tostring(msg.powod), "ALARM")
+                dodajLog("ALARM: " .. (msg.nazwa or senderId) .. " -> " .. tostring(msg.powod), "ALARM")
                 odswiezInterfejs()
             end
         end
 
-    -- 2. Timer cykliczny UI i sprawdzanie timeoutów
+    -- 2. Cykliczny timer odświeżania zegara, sprawdzania timeoutów i synchronizacji
     elseif event == "timer" and p1 == timerOdswiezania then
         odswiezInterfejs()
         timerOdswiezania = os.startTimer(1)
 
-    -- 3. Czyszczenie logów klawiszem C
+    -- 3. Obsługa klawiszy na fizycznym serwerze
     elseif event == "key" then
         if p1 == keys.c then
             logiZdarzen = {}
