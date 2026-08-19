@@ -1,64 +1,33 @@
-local NAZWA_STACJI = "Stacja_01" -- Zmień na np. Stacja_02 na drugim kliencie
+local NAZWA_STACJI = "Stacja_Polnocna" -- Zmień nazwę dla każdego komputera
 
--- Wykrywanie modemu
-local modemSide = nil
-for _, side in ipairs(rs.getSides()) do
-    if peripheral.getType(side) == "modem" then
-        modemSide = side
-        break
-    end
-end
-
-if not modemSide then
+local modem = peripheral.find("modem")
+if not modem then
     error("Blad: Nie znaleziono modemu!")
 end
-
-rednet.open(modemSide)
+rednet.open(peripheral.getName(modem))
 
 term.clear()
 term.setCursorPos(1, 1)
-print("Szukanie serwera...")
+print("Laczenie ze stacja glowna...")
 
-local serverId = rednet.lookup("siec_kolejowa", "Główny Serwer")
+local serverId = rednet.lookup("stacje_kolejowe", "serwer_glowny")
 while not serverId do
-    print("Serwer niedostepny. Ponawiam za 3s...")
-    sleep(3)
-    serverId = rednet.lookup("siec_kolejowa", "Główny Serwer")
+    sleep(1)
+    serverId = rednet.lookup("stacje_kolejowe", "serwer_glowny")
 end
 
 print("Polaczono z serwerem ID: " .. serverId)
-print("Nacisnij [1] Wyslij Ping | [2] Wyslij Status | [Q] Wyjdz")
 
 while true do
-    local event, key = os.pullEvent("key")
+    rednet.send(serverId, { typ = "PING", nazwa = NAZWA_STACJI }, "stacje_kolejowe")
+    local id, odp = rednet.receive("stacje_kolejowe", 2)
     
-    if key == keys.one then
-        -- Wysyłanie PING
-        print("Wysylanie PING...")
-        rednet.send(serverId, { typ = "PING", nazwa = NAZWA_STACJI }, "siec_kolejowa")
-        local id, resp = rednet.receive("siec_kolejowa", 2)
-        if resp then
-            print("Odpowiedz: " .. tostring(resp.odp))
-        else
-            print("Brak odpowiedzi (timeout)")
-        end
-        
-    elseif key == keys.two then
-        -- Wysyłanie przykładowych danych/statusu
-        print("Wysylanie raportu...")
-        rednet.send(serverId, { 
-            typ = "ZAPYTANIE", 
-            nazwa = NAZWA_STACJI, 
-            dane = "Pociag gotowy do odjazdu" 
-        }, "siec_kolejowa")
-        
-        local id, resp = rednet.receive("siec_kolejowa", 2)
-        if resp then
-            print("Serwer odpowiedzial: " .. tostring(resp.odp))
-        end
-        
-    elseif key == keys.q then
-        print("Zamykanie klienta...")
-        break
+    term.setCursorPos(1, 4)
+    if odp and odp.status == "PONG" then
+        print("Status: POLACZONO | Czas gry: " .. textutils.formatTime(odp.czas, true) .. "   ")
+    else
+        print("Status: BRAK SYGNALU SERWERA...              ")
     end
+    
+    sleep(2)
 end
