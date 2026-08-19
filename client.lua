@@ -4,6 +4,7 @@
 local CONFIG_FILE = "client_config.json"
 local PROTOKOL    = "kolej_net"
 local SERWER_HOST = "centrala_glowna"
+local MOJE_ID     = os.getComputerID()
 
 local function wczytajConfig()
     if fs.exists(CONFIG_FILE) then
@@ -26,12 +27,13 @@ local function kreatorKonfiguracji()
     term.setCursorPos(1, 1)
     print("========================================")
     print("       KREATOR KONFIGURACJI KLIENTA     ")
+    print("       (ID Twojego komputera: #" .. MOJE_ID .. ")")
     print("========================================")
 
     -- 1. Nazwa stacji / posterunku
     write("Podaj nazwe punktu: ")
     local nazwa = read()
-    if nazwa == "" then nazwa = "Posterunek_" .. os.getComputerID() end
+    if nazwa == "" then nazwa = "Posterunek_" .. MOJE_ID end
 
     -- 2. Wybór trybu pracy
     print("\nWybierz tryb pracy:")
@@ -86,7 +88,7 @@ local config = wczytajConfig()
 if not config then
     config = kreatorKonfiguracji()
 else
-    print("Punkt: " .. config.nazwaKlienta .. " | Tryb: " .. config.tryb)
+    print("ID: #" .. MOJE_ID .. " | Punkt: " .. config.nazwaKlienta .. " | Tryb: " .. config.tryb)
     print("Przytrzymaj [R] by zmienic konfiguracje...")
     local timer = os.startTimer(1.5)
     while true do
@@ -127,11 +129,13 @@ local function rysujEkran(serverId, statusInfo)
     term.clear()
     term.setCursorPos(1, 1)
     print("========================================")
-    print(" KLIENT: " .. config.nazwaKlienta)
-    print(" TRYB:   " .. config.tryb .. " (" .. config.stronaRedstone .. ")")
-    print(" SERWER: " .. (serverId and ("ID #" .. serverId) or "Szukanie..."))
+    print(" KLIENT:  " .. config.nazwaKlienta)
+    print(" MOJE ID: #" .. MOJE_ID)
+    print(" TRYB:    " .. config.tryb .. " (" .. config.stronaRedstone .. ")")
+    print(" SERWER:  " .. (serverId and ("ID #" .. serverId) or "Szukanie..."))
     print("========================================")
     print("Status: " .. (statusInfo or "OK"))
+    print("Czas gry: " .. textutils.formatTime(os.time(), true))
     print("----------------------------------------")
 end
 
@@ -166,7 +170,7 @@ while true do
 
         pingTimer = os.startTimer(config.interwalPing)
 
-    -- 2. Wykrywanie Train Observera
+    -- 2. Wykrywanie Train Observera (Redstone)
     elseif event == "redstone" and config.tryb == "OBSERVER" then
         local jestSygnal = czySygnalRedstone()
 
@@ -186,11 +190,11 @@ while true do
             bylSygnalRedstone = false
         end
 
-    -- 3. Odpowiedzi z serwera
+    -- 3. Potwierdzenia z serwera
     elseif event == "rednet_message" and p3 == PROTOKOL then
         local _, msg = p1, p2
         if type(msg) == "table" and msg.odp == "PONG_OK" then
-            -- Polaczenie stabilne
+            -- Polaczenie aktywne
         end
     end
 end
