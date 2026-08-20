@@ -19,6 +19,7 @@ local PROTOKOL     = "kolej_net"
 local NAZWA_HOSTA  = "centrala_glowna"
 local TIMEOUT_SEK  = 6   -- Czas w sekundach do uznania węzła za OFFLINE
 local MAX_LOGOW    = 8   -- Maksymalna liczba wpisów w historii
+local START_EPOCH  = os.epoch("utc") -- Czas startu do liczenia uptime
 --------------------------------------------------------------------------------
 
 local modem = peripheral.find("modem")
@@ -30,6 +31,14 @@ rednet.host(PROTOKOL, NAZWA_HOSTA)
 
 local klienci = {}
 local logiZdarzen = {}
+
+-- Obliczanie czasu pracy od uruchomienia (godziny i minuty)
+local function pobierzUptime()
+    local sekundy = math.floor((os.epoch("utc") - START_EPOCH) / 1000)
+    local godziny = math.floor(sekundy / 3600)
+    local minuty  = math.floor((sekundy % 3600) / 60)
+    return string.format("%02dh %02dm", godziny, minuty)
+end
 
 -- Funkcja dodawania wpisu i natychmiastowego broadcastu do urządzeń mobilnych
 local function dodajLog(tekst, kategoria)
@@ -55,6 +64,7 @@ local function odswiezInterfejs()
     term.setCursorPos(1, 1)
     print("==================================================")
     print("         CENTRALA KOLEJOWA - MONITOR SYSTEMU      ")
+    print(string.format(" Uptime: %-12s | Czas gry: %s", pobierzUptime(), textutils.formatTime(os.time(), true)))
     print("==================================================")
     print(string.format("%-4s | %-14s | %-9s | %-8s", "ID", "NAZWA", "TRYB", "STATUS"))
     print("--------------------------------------------------")
@@ -89,7 +99,7 @@ local function odswiezInterfejs()
         end
     end
     print("--------------------------------------------------")
-    print(string.format("Aktywne wezly: %d | Czas gry: %s | [C] Reset logow", onlineCount, textutils.formatTime(os.time(), true)))
+    print(string.format("Aktywne wezly: %d | [C] Reset logow", onlineCount))
 end
 
 -- Inicjalizacja pętli
@@ -123,12 +133,13 @@ while true do
                 dodajLog("PRZEJAZD: Pociag minal " .. punkt, "PRZEJAZD")
                 odswiezInterfejs()
 
-            -- Prośba o pełny pakiet danych (używane przy przełączaniu kart w Pocket PC)
+            -- Prośba o pełny pakiet danych (dla Pocket PC)
             elseif msg.typ == "POBIERZ_DANE" then
                 rednet.send(senderId, {
                     typ = "PELNE_DANE",
                     klienci = klienci,
-                    logi = logiZdarzen
+                    logi = logiZdarzen,
+                    uptime = pobierzUptime()
                 }, PROTOKOL)
 
             -- Prośba o samą historię logów
@@ -145,12 +156,12 @@ while true do
             end
         end
 
-    -- 2. Cykliczny timer odświeżania zegara, sprawdzania timeoutów i synchronizacji
+    -- 2. Cykliczny timer odświeżania zegara, sprawdzania timeoutów i uptime
     elseif event == "timer" and p1 == timerOdswiezania then
         odswiezInterfejs()
         timerOdswiezania = os.startTimer(1)
 
-    -- 3. Obsługa klawiszy na fizycznym serwerze
+    -- 3. Obsługa klawiszy na serwerze
     elseif event == "key" then
         if p1 == keys.c then
             logiZdarzen = {}
