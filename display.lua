@@ -1,54 +1,27 @@
 --------------------------------------------------------------------------------
---                KONTROLER TABLICY CREATE (DISPLAY BOARD)                    --
+--            OFICJALNY STEROWNIK CREATE DISPLAY BOARD (display.lua)          --
 --------------------------------------------------------------------------------
 local PROTOKOL     = "kolej_net"
 local SERWER_HOST  = "centrala_glowna"
 local TYTUL_TABLICY = "--- RUCH POCIAGOW ---"
 
--- Inicjalizacja modemu Rednet
+-- 1. Inicjalizacja modemu
 local modem = peripheral.find("modem")
 if not modem then
-    error("Blad: Nie znaleziono modemu Rednet!")
+    error("Blad: Nie znaleziono modemu!")
 end
 rednet.open(peripheral.getName(modem))
 
--- Szukanie podłączonej tablicy Display Board (bezpośrednio lub po kablu)
-local function znajdzTablice()
-    local b = peripheral.find("create:display_board") 
-           or peripheral.find("display_board")
-           or peripheral.find("Create_DisplayBoard")
-    if b then return b end
-    for _, name in ipairs(peripheral.getNames()) do
-        if name:find("display_board") or name:find("display") then
-            return peripheral.wrap(name)
-        end
-    end
-    return nil
-end
-
-local board = znajdzTablice()
+-- 2. Wyszukanie Display Board (bezpośrednio lub przez Wired Modem)
+local board = peripheral.find("Create_DisplayBoard") or peripheral.find("create:display_board")
 if not board then
-    error("Blad: Brak polaczenia z Create Display Board!")
+    error("Blad: Brak podlaczonej tablicy Display Board!")
 end
 
--- Pobieranie wymiarów tablicy (domyślnie 4 linie jeśli funkcja nie istnieje)
-local maxLinii = 4
-local pcallLinii = pcall(function() maxLinii = board.getLineCount() end)
-
--- Bezpieczne wpisywanie tekstu w linię tablicy (kompatybilność indeksów 0 i 1)
-local function ustawLinie(nr, tekst)
-    local sukces = pcall(function() board.setLine(nr, tekst) end)
-    if not sukces then
-        pcall(function() board.setLine(nr - 1, tekst) end)
-    end
-end
+local maxLinii = board.getLineCount()
 
 local function wyczyscTablice()
-    if board.clear then
-        pcall(function() board.clear() end)
-    else
-        for i = 1, maxLinii do ustawLinie(i, "") end
-    end
+    board.clear()
 end
 
 local listaPrzejazdow = {}
@@ -56,27 +29,28 @@ local listaPrzejazdow = {}
 local function odswiezTablice()
     local czasGry = textutils.formatTime(os.time(), true)
     
-    -- Linia 1: Nagłówek i czas gry
-    ustawLinie(1, TYTUL_TABLICY)
+    -- Linia 1: Nagłówek
+    board.setLine(1, TYTUL_TABLICY .. " [" .. czasGry .. "]")
     
-    -- Kolejne linie: Historia ostatnich przejazdów
+    -- Linie 2..N: Historia meldunków o pociągach
     for i = 2, maxLinii do
         local wpis = listaPrzejazdow[i - 1]
         if wpis then
-            ustawLinie(i, string.format("%s %s", wpis.czas, wpis.punkt))
+            board.setLine(i, string.format("%s %s", wpis.czas, wpis.punkt))
         else
-            ustawLinie(i, "--- OCZEKIWANIE ---")
+            board.setLine(i, "")
         end
     end
 end
 
--- Inicjalizacja ekranu komputera
+-- 3. Inicjalizacja i połączenie z serwerem
 term.clear()
 term.setCursorPos(1, 1)
 print("========================================")
-print("      STEROWNIK DISPLAY BOARD (CREATE)  ")
+print("    CREATE DISPLAY BOARD CONTROLLER     ")
 print("========================================")
-print("Szukanie centrali...")
+print("Wykryto wierszy na tablicy: " .. maxLinii)
+print("Szukanie serwera centralnego...")
 
 local serverId = rednet.lookup(PROTOKOL, SERWER_HOST)
 while not serverId do
@@ -84,16 +58,16 @@ while not serverId do
     serverId = rednet.lookup(PROTOKOL, SERWER_HOST)
 end
 
-print("Polaczono z serwerem #" .. serverId)
+print("Polaczono z centrala #" .. serverId)
 wyczyscTablice()
 odswiezTablice()
 
-local zegarTimer = os.startTimer(5) -- Odświeżanie czasu co kilka sekund
+local zegarTimer = os.startTimer(4)
 
 while true do
     local event, p1, p2, p3 = os.pullEvent()
 
-    -- 1. Odbiór meldunków o przejeździe pociągu
+    -- Odbiór meldunków o przejeździe składów
     if event == "rednet_message" and p3 == PROTOKOL then
         local senderId, msg = p1, p2
         if type(msg) == "table" then
@@ -106,14 +80,14 @@ while true do
                     table.remove(listaPrzejazdow)
                 end
 
-                print(string.format("[%s] Aktualizacja tablicy: %s", czas, punkt))
+                print(string.format("[%s] Odnotowano przejazd: %s", czas, punkt))
                 odswiezTablice()
             end
         end
 
-    -- 2. Cykliczny zegar
+    -- Cykliczne odświeżanie czasu gry na tablicy
     elseif event == "timer" and p1 == zegarTimer then
         odswiezTablice()
-        zegarTimer = os.startTimer(5)
+        zegarTimer = os.startTimer(4)
     end
 end
