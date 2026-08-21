@@ -239,6 +239,10 @@ while true do
         local senderId, msg = p1, p2
 
         if type(msg) == "table" then
+            if klienci[senderId] then
+                klienci[senderId].lastSeen = os.clock()
+            end
+
             -- Heartbeat i meldowanie
             if msg.typ == "PING" then
                 klienci[senderId] = {

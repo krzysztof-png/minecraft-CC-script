@@ -135,10 +135,17 @@ print("Polaczono z centrala #" .. serverId)
 wyczyscTablice()
 odswiezTablice()
 
--- Pobranie historii przejazdów z bazy danych serwera przy starcie
+-- Pobranie historii przejazdów z bazy danych serwera przy starcie i wysłanie PING
+rednet.send(serverId, {
+    typ = "PING",
+    nazwa = "Tablica_" .. os.getComputerID(),
+    tryb = "DISPLAY",
+    status = string.format("%dx%d", szerokosc, wysokosc)
+}, PROTOKOL)
 rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
 
 local zegarTimer = os.startTimer(2)
+local pingTimer = os.startTimer(2)
 local rescanTimer = os.startTimer(5)
 
 while true do
@@ -220,6 +227,19 @@ while true do
                 os.reboot()
             end
         end
+
+    -- Heartbeat PING do serwera centralnego
+    elseif event == "timer" and p1 == pingTimer then
+        serverId = pobierzServerId()
+        if serverId then
+            rednet.send(serverId, {
+                typ = "PING",
+                nazwa = "Tablica_" .. os.getComputerID(),
+                tryb = "DISPLAY",
+                status = string.format("%dx%d", szerokosc, wysokosc)
+            }, PROTOKOL)
+        end
+        pingTimer = os.startTimer(2)
 
     -- Cykliczny re-skan peryferium wyświetlacza (na przypadek podłączenia w trakcie)
     elseif event == "timer" and p1 == rescanTimer then
