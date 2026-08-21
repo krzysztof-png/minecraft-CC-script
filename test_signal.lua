@@ -1,82 +1,71 @@
--- test_bridge.lua
--- Skrypt diagnostyczny dla CC:C Bridge
+-- target_reader.lua
+-- Skrypt do odczytu danych pociagu z CC:C Bridge Target Block
 
-local target = peripheral.find("train_signal") 
-    or peripheral.find("train_station") 
-    or peripheral.find("target")
+-- Pobranie peryferium z 'back' lub automatyczne znalezienie create_target
+local target = peripheral.wrap("back") or peripheral.find("create_target")
 
 if not target then
-    print("Nie znaleziono peryferium Create/Bridge!")
-    print("Dostepne peryferia w sieci:")
-    for _, name in ipairs(peripheral.getNames()) do
-        print(" - " .. name .. " (" .. peripheral.getType(name) .. ")")
-    end
-    return
+    error("Nie znaleziono peryferium 'create_target' (Target Block) na boku 'back'!")
 end
 
-local periName = peripheral.getName(target)
-local periType = peripheral.getType(target)
+print("Polaczono z Target Blockiem.")
+print("---------------------------------------")
 
-print("Polaczono z: " .. periName .. " [" .. periType .. "]")
-print("----------------------------------------")
-print("Dostepne metody:")
-for _, method in ipairs(peripheral.getMethods(periName)) do
-    print(" > " .. method)
-end
-print("----------------------------------------")
-
--- Funkcja pomocnicza do odczytu danych w zaleznosci od dostepnych metod CC:C Bridge
-local function checkTrain()
-    print("\n[Odczyt danych " .. os.date("%T") .. "]")
+-- Funkcja do bezpiecznego odczytu calej zawartosci Target Blocka
+local function readTargetBuffer()
+    print("\n--- ODCZYT BUFORA (" .. os.date("%T") .. ") ---")
     
-    -- 1. Jezeli obiekt ma metode getTrainName (stacja / target)
-    if target.getTrainName then
-        local name = target.getTrainName()
-        print("getTrainName(): " .. tostring(name))
-    end
-
-    -- 2. Jezeli obiekt ma getTrain (obiekt tabeli z danymi pociagu)
-    if target.getTrain then
-        local trainData = target.getTrain()
-        if type(trainData) == "table" then
-            print("getTrain(): Dane pociagu:")
-            for k, v in pairs(trainData) do
-                print("   " .. tostring(k) .. " = " .. tostring(v))
-            end
+    -- 1. Nowsze wersje CC:C Bridge wspieraja target.dump() zwracajace tablice linii
+    if target.dump then
+        local lines = target.dump()
+        if #lines == 0 then
+            print("[Pusty bufor]")
         else
-            print("getTrain(): " .. tostring(trainData))
+            for i, line in ipairs(lines) do
+                print(string.format("[%02d] %s", i, line))
+            end
         end
+        return
     end
 
-    -- 3. Jezeli obiekt to train_signal (listBlockingTrainNames / getBlockingTrains)
-    if target.listBlockingTrainNames then
-        local trains = target.listBlockingTrainNames()
-        print("listBlockingTrainNames(): Liczba pociagow: " .. #trains)
-        for i, tname in ipairs(trains) do
-            print("   " .. i .. ". " .. tname)
+    -- 2. Fallback: odczyt linijka po linijce (getText / getLine)
+    local line = 1
+    local foundAny = false
+    while true do
+        local content = nil
+        if target.getLine then
+            content = target.getLine(line)
+        elseif target.getText then
+            content = target.getText(line)
         end
+
+        if not content or content == "" then
+            break
+        end
+
+        print(string.format("[%02d] %s", line, content))
+        foundAny = true
+        line = line + 1
     end
 
-    if target.getBlockingTrains then
-        local trains = target.getBlockingTrains()
-        print("getBlockingTrains(): Liczba wpisow: " .. (type(trains) == "table" and #trains or 0))
+    if not foundAny then
+        print("[Pusty bufor]")
     end
 end
 
--- Poczatkowy odczyt
-checkTrain()
+-- Poczatkowy stan bufora
+readTargetBuffer()
 
-print("\nNasluchiwanie eventow (Ctrl+T aby przerwac)...")
+print("\nNasluchiwanie zmian z Display Linka (Ctrl+T aby zatrzymac)...")
+
+-- Glowna petla nasluchujaca eventow
 while true do
     local eventData = { os.pullEvent() }
     local eventName = eventData[1]
-    
-    -- Ignorujemy klikniecia myszka i odswiezanie ekranu
-    if eventName ~= "timer" and eventName ~= "mouse_click" and eventName ~= "mouse_up" then
-        print("\nOdebrano event: " .. eventName)
-        for i = 2, #eventData do
-            print("  arg[" .. (i-1) .. "]: " .. tostring(eventData[i]))
-        end
-        checkTrain()
+
+    -- CC:C Bridge wyrzuca event przy kazdej aktualizacji z Display Linka
+    if eventName:find("target") or eventName == "redstone" or eventName == "display_link" then
+        print("\n[EVENT: " .. eventName .. "]")
+        readTargetBuffer()
     end
 end
