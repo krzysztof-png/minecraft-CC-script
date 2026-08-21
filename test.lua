@@ -1,56 +1,52 @@
--- debug_observers.lua
-local s_left = peripheral.wrap("Create_TrainObserver_1")
-local s_right = peripheral.wrap("Create_TrainObserver_0")
+-- probe_observer.lua
+-- Skrypt inspekcyjny do zbadania peryferium Create_TrainObserver
 
-print("--- METODY DLA OBSERVER_1 (Lewy) ---")
-if s_left then
-    for _, m in ipairs(peripheral.getMethods("Create_TrainObserver_1")) do
-        print(" > " .. m)
+local name = "Create_TrainObserver_0"
+local dev = peripheral.wrap(name)
+
+term.clear()
+term.setCursorPos(1, 1)
+
+if not dev then
+    print("BLAD: Nie wykryto peryferium " .. name)
+    print("Dostepne peryferia w sieci:")
+    for _, p in ipairs(peripheral.getNames()) do
+        print(" - " .. p)
     end
-else
-    print("BLAD: Nie znaleziono Create_TrainObserver_1")
+    return
 end
 
-print("\n--- METODY DLA OBSERVER_0 (Prawy) ---")
-if s_right then
-    for _, m in ipairs(peripheral.getMethods("Create_TrainObserver_0")) do
-        print(" > " .. m)
-    end
+print("=== INSPEKCJA: " .. name .. " ===")
+print("Typ: " .. peripheral.getType(name))
+print("\n--- WSZYSTKIE METODY ---")
+local methods = peripheral.getMethods(name)
+if #methods == 0 then
+    print("[BRAK METOD]")
 else
-    print("BLAD: Nie znaleziono Create_TrainObserver_0")
+    for i, m in ipairs(methods) do
+        local ok, res = pcall(dev[m])
+        if ok then
+            print(string.format(" %2d. %s() -> %s", i, m, tostring(res)))
+        else
+            print(string.format(" %2d. %s() [Wymaga argumentow / blad]", i, m))
+        end
+    end
 end
 
-print("\nNacisnij dowolny klawisz, aby rozpoczac monitorowanie na zywo...")
-os.pullEvent("key")
+print("\n-------------------------------------------")
+print("NASLUCHIWANIE EVENTOW (Przejedz pociagiem!)")
+print("Wcisnij Ctrl+T aby przerwac...")
+print("-------------------------------------------")
 
 while true do
-    term.clear()
-    term.setCursorPos(1, 1)
-    
-    -- Odczyt wszystkich możliwych wariantów
-    local left_val = "brak danych"
-    if s_left then
-        if s_left.isPowered then left_val = tostring(s_left.isPowered())
-        elseif s_left.getState then left_val = tostring(s_left.getState())
-        elseif s_left.getSignal then left_val = tostring(s_left.getSignal())
+    local ev = { os.pullEvent() }
+    local evName = ev[1]
+
+    -- Filtrujemy tylko zdarzenia klawiatury
+    if evName ~= "key" and evName ~= "key_up" and evName ~= "char" then
+        print(string.format("[%s] Event: %s", os.date("%T"), evName))
+        for i = 2, #ev end do
+            print(string.format("   param[%d] = %s", i - 1, tostring(ev[i])))
         end
     end
-
-    local mid_val = tostring(redstone.getInput("back"))
-
-    local right_val = "brak danych"
-    if s_right then
-        if s_right.isPowered then right_val = tostring(s_right.isPowered())
-        elseif s_right.getState then right_val = tostring(s_right.getState())
-        elseif s_right.getSignal then right_val = tostring(s_right.getSignal())
-        end
-    end
-
-    print("=== PODGLAD STANOW NA ZYWO ===")
-    print("Lewy  (Observer_1): " .. left_val)
-    print("Srodek (back)     : " .. mid_val)
-    print("Prawy (Observer_0): " .. right_val)
-    print("\nPrzejedz pociagiem, aby sprawdzic czy stany zmieniaja sie na true.")
-    
-    sleep(0.05) -- 1 tick
 end
