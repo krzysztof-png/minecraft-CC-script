@@ -4,15 +4,16 @@
 local STRONA_MONITORA = "right"
 local SKALA_TEKSTU    = 0.8
 
-local targetTerm = term.current()
-if peripheral.getType(STRONA_MONITORA) == "monitor" then
-    local mon = peripheral.wrap(STRONA_MONITORA)
-    pcall(function() mon.setTextScale(SKALA_TEKSTU) end)
-    term.redirect(mon)
-    targetTerm = mon
+local function znajdzMonitor()
+    local dev = (peripheral.getType(STRONA_MONITORA) == "monitor" and peripheral.wrap(STRONA_MONITORA)) or peripheral.find("monitor")
+    if dev then
+        pcall(function() dev.setTextScale(SKALA_TEKSTU) end)
+        return dev
+    end
+    return nil
 end
 
-local isColor = term.isColor()
+local monitorPeri = znajdzMonitor()
 
 --------------------------------------------------------------------------------
 --                         PALETA KOLORÓW I STYLE                             --
@@ -32,13 +33,6 @@ local C = {
     log_alarm   = colors.red,
     log_sys     = colors.purple
 }
-
-local function setC(fg, bg)
-    if isColor then
-        if fg then term.setTextColor(fg) end
-        if bg then term.setBackgroundColor(bg) end
-    end
-end
 
 --------------------------------------------------------------------------------
 --                         KONFIGURACJA SERWERA                               --
@@ -109,8 +103,17 @@ local function dodajLog(tekst, kategoria, meta)
     }, PROTOKOL)
 end
 
-local function odswiezInterfejs()
+local function rysujJednostkeTerminala()
     local w, h = term.getSize()
+    local isColor = term.isColor()
+
+    local function setC(fg, bg)
+        if isColor then
+            if fg then term.setTextColor(fg) end
+            if bg then term.setBackgroundColor(bg) end
+        end
+    end
+
     setC(C.text, C.bg)
     term.clear()
     term.setCursorPos(1, 1)
@@ -144,8 +147,8 @@ local function odswiezInterfejs()
         setC(C.text, C.bg)
         io.write(string.format("#%-3d | %-13s | %-8s | ", 
             id, 
-            dane.nazwa:sub(1, 13), 
-            dane.tryb:sub(1, 8)
+            (dane.nazwa or ""):sub(1, 13), 
+            (dane.tryb or ""):sub(1, 8)
         ))
 
         if online then
@@ -199,6 +202,29 @@ local function odswiezInterfejs()
     io.write(tostring(onlineCount))
     setC(C.subtext, C.bg)
     print(" | [C] Reset logow | [X] Reboot sieci")
+end
+
+local function odswiezInterfejs()
+    -- 1. Zawsze rysuj na natywnym ekranie komputera
+    term.redirect(term.native())
+    rysujJednostkeTerminala()
+
+    -- 2. Jeśli jest podłączony zewnętrzny monitor, rysuj również na nim
+    if not monitorPeri then
+        monitorPeri = znajdzMonitor()
+    end
+
+    if monitorPeri then
+        local ok, err = pcall(function()
+            term.redirect(monitorPeri)
+            rysujJednostkeTerminala()
+        end)
+        if not ok then
+            monitorPeri = nil
+        end
+    end
+
+    term.redirect(term.native())
 end
 
 local timerOdswiezania = os.startTimer(1)
