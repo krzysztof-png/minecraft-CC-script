@@ -2,7 +2,7 @@
 --                         KONFIGURACJA MONITORA                              --
 --------------------------------------------------------------------------------
 local STRONA_MONITORA = "right"
-local SKALA_TEKSTU    = 0.8 -- W CC wartości to wielokrotności 0.5 (zostanie zaokrąglona)
+local SKALA_TEKSTU    = 0.8
 
 local targetTerm = term.current()
 if peripheral.getType(STRONA_MONITORA) == "monitor" then
@@ -33,7 +33,6 @@ local C = {
     log_sys     = colors.purple
 }
 
--- Funkcja pomocnicza do bezpiecznego kolorowania tekstu
 local function setC(fg, bg)
     if isColor then
         if fg then term.setTextColor(fg) end
@@ -46,10 +45,10 @@ end
 --------------------------------------------------------------------------------
 local PROTOKOL     = "kolej_net"
 local NAZWA_HOSTA  = "centrala_glowna"
-local TIMEOUT_SEK  = 6   -- Czas w sekundach do uznania węzła za OFFLINE
-local MAX_LOGOW    = 8   -- Maksymalna liczba wpisów w historii
-local START_EPOCH  = os.epoch("utc") -- Czas startu do liczenia uptime
---------------------------------------------------------------------------------
+local TIMEOUT_SEK  = 6
+local MAX_LOGOW    = 8
+local DB_FILE      = "transit_logs.json"
+local START_EPOCH  = os.epoch("utc")
 
 local modem = peripheral.find("modem")
 if not modem then
@@ -61,7 +60,23 @@ rednet.host(PROTOKOL, NAZWA_HOSTA)
 local klienci = {}
 local logiZdarzen = {}
 
--- Obliczanie czasu pracy od uruchomienia (godziny i minuty)
+-- === BAZA DANYCH PRZEJAZDÓW ===
+local function wczytajBazePrzejazdow()
+    if not fs.exists(DB_FILE) then return {} end
+    local f = fs.open(DB_FILE, "r")
+    local data = textutils.unserializeJSON(f.readAll()) or {}
+    f.close()
+    return data
+end
+
+local function zapiszPrzejazdDoBazy(rekord)
+    local db = wczytajBazePrzejazdow()
+    table.insert(db, rekord)
+    local f = fs.open(DB_FILE, "w")
+    f.write(textutils.serializeJSON(db))
+    f.close()
+end
+
 local function pobierzUptime()
     local sekundy = math.floor((os.epoch("utc") - START_EPOCH) / 1000)
     local godziny = math.floor(sekundy / 3600)
@@ -69,7 +84,6 @@ local function pobierzUptime()
     return string.format("%02dh %02dm", godziny, minuty)
 end
 
--- Funkcja dodawania wpisu i natychmiastowego broadcastu do urządzeń mobilnych
 local function dodajLog(tekst, kategoria)
     local godzina = textutils.formatTime(os.time(), true)
     local wpis = {
@@ -83,7 +97,6 @@ local function dodajLog(tekst, kategoria)
         table.remove(logiZdarzen)
     end
 
-    -- Rozsyłanie wpisu na żywo do Pocket PC
     rednet.broadcast({
         typ = "NOWY_LOG",
         tekst = string.format("[%s] %s", godzina, tekst),
@@ -91,31 +104,26 @@ local function dodajLog(tekst, kategoria)
     }, PROTOKOL)
 end
 
--- Rysowanie głównego interfejsu serwera / monitora
 local function odswiezInterfejs()
     local w, h = term.getSize()
     setC(C.text, C.bg)
     term.clear()
     term.setCursorPos(1, 1)
 
-    -- Nagłówek górny
     setC(C.header_fg, C.header_bg)
     local title = " CENTRALA KOLEJOWA - MONITOR SYSTEMU "
     local pad = math.max(0, math.floor((w - #title) / 2))
     print(string.rep(" ", pad) .. title .. string.rep(" ", w - #title - pad))
 
-    -- Pasek informacyjny
     setC(C.subtext, C.bg)
     local uptimeStr = string.format(" Uptime: %-10s | Czas gry: %s", pobierzUptime(), textutils.formatTime(os.time(), true))
     print(uptimeStr .. string.rep(" ", math.max(0, w - #uptimeStr)))
 
-    -- Separator
     setC(C.border, C.bg)
     print(string.rep("=", w))
 
-    -- Nagłówki tabeli
     setC(C.table_head, C.bg)
-    print(string.format("%-4s | %-14s | %-9s | %-8s", "ID", "NAZWA", "TRYB", "STATUS"))
+    print(string.format("%-4s | %-13s | %-8s | %-16s", "ID", "POSTERUNEK", "TRYB", "STATUS / POCIAG"))
     
     setC(C.border, C.bg)
     print(string.rep("-", w))
@@ -123,27 +131,28 @@ local function odswiezInterfejs()
     local teraz = os.clock()
     local onlineCount = 0
 
-    -- Wypisanie zarejestrowanych węzłów
     for id, dane in pairs(klienci) do
         local online = (teraz - dane.lastSeen) <= TIMEOUT_SEK
         local statusStr = online and dane.status or "OFFLINE"
         if online then onlineCount = onlineCount + 1 end
 
-        -- ID i Nazwa
         setC(C.text, C.bg)
-        io.write(string.format("#%-3d | %-14s | %-9s | ", 
+        io.write(string.format("#%-3d | %-13s | %-8s | ", 
             id, 
-            dane.nazwa:sub(1, 14), 
-            dane.tryb:sub(1, 9)
+            dane.nazwa:sub(1, 13), 
+            dane.tryb:sub(1, 8)
         ))
 
-        -- Kolorowany status
         if online then
-            setC(C.status_on, C.bg)
+            if statusStr == "WOLNY" or statusStr == "OK" then
+                setC(C.status_on, C.bg)
+            else
+                setC(C.log_pass, C.bg)
+            end
         else
             setC(C.status_off, C.bg)
         end
-        print(string.format("%-8s", statusStr:sub(1, 8)))
+        print(string.format("%-16s", statusStr:sub(1, 16)))
     end
 
     if next(klienci) == nil then
@@ -151,7 +160,6 @@ local function odswiezInterfejs()
         print("  Oczekiwanie na rejestracje wezlow sieci...")
     end
 
-    -- Sekcja Logów
     setC(C.border, C.bg)
     print(string.rep("-", w))
     setC(C.table_head, C.bg)
@@ -162,11 +170,9 @@ local function odswiezInterfejs()
         print("  Brak zarejestrowanych zdarzen.")
     else
         for _, log in ipairs(logiZdarzen) do
-            -- Czas zdarzenia
             setC(C.subtext, C.bg)
             io.write(string.format(" [%s] ", log.godzina))
 
-            -- Dobór koloru według kategorii zdarzenia
             if log.kategoria == "ALARM" then
                 setC(C.log_alarm, C.bg)
             elseif log.kategoria == "PRZEJAZD" then
@@ -180,7 +186,6 @@ local function odswiezInterfejs()
         end
     end
 
-    -- Stopka
     setC(C.border, C.bg)
     print(string.rep("-", w))
     setC(C.subtext, C.bg)
@@ -191,7 +196,6 @@ local function odswiezInterfejs()
     print(" | [C] Reset logow")
 end
 
--- Inicjalizacja pętli
 local timerOdswiezania = os.startTimer(1)
 dodajLog("Serwer glowny uruchomiony.", "SYSTEM")
 odswiezInterfejs()
@@ -204,25 +208,39 @@ while true do
         local senderId, msg = p1, p2
 
         if type(msg) == "table" then
-            -- Heartbeat i meldowanie węzłów
+            -- Heartbeat i meldowanie
             if msg.typ == "PING" then
                 klienci[senderId] = {
                     nazwa    = msg.nazwa or ("Klient_" .. senderId),
                     tryb     = msg.tryb or "BEACON",
-                    status   = msg.status or "ONLINE",
+                    status   = msg.status or "OK",
+                    pociag   = msg.pociag or nil,
                     lastSeen = os.clock()
                 }
                 rednet.send(senderId, { odp = "PONG_OK" }, PROTOKOL)
-                -- Synchronizacja listy urządzeń z podłączonymi Pocket PC
                 rednet.broadcast({ typ = "SYNC_KLIENCI", klienci = klienci }, PROTOKOL)
 
-            -- Sygnał z Train Observera
+            -- Wykrycie i identyfikacja pociągu
             elseif msg.typ == "PRZEJAZD_POCIAGU" then
                 local punkt = msg.nazwa or ("ID #" .. senderId)
-                dodajLog("PRZEJAZD: Pociag minal " .. punkt, "PRZEJAZD")
+                local pociagNazwa = msg.pociag or "Nieznany pociag"
+                
+                dodajLog(string.format("%s: %s", punkt, pociagNazwa), "PRZEJAZD")
+
+                -- Zapis do bazy danych
+                local rekord = {
+                    id = os.epoch("utc"),
+                    timestamp = os.date("!%Y-%m-%d %H:%M:%S"),
+                    czas_gry = msg.czas or textutils.formatTime(os.time(), true),
+                    posterunek = punkt,
+                    posterunek_id = senderId,
+                    tryb_detekcji = msg.tryb or "OBSERVER",
+                    nazwa_pociagu = pociagNazwa
+                }
+                zapiszPrzejazdDoBazy(rekord)
                 odswiezInterfejs()
 
-            -- Prośba o pełny pakiet danych (dla Pocket PC)
+            -- Pobieranie danych
             elseif msg.typ == "POBIERZ_DANE" then
                 rednet.send(senderId, {
                     typ = "PELNE_DANE",
@@ -231,31 +249,33 @@ while true do
                     uptime = pobierzUptime()
                 }, PROTOKOL)
 
-            -- Prośba o samą historię logów
             elseif msg.typ == "POBIERZ_LOGI" then
                 rednet.send(senderId, {
                     typ = "HISTORIA_LOGOW",
                     logi = logiZdarzen
                 }, PROTOKOL)
 
-            -- Zdarzenia awaryjne i alarmy
+            elseif msg.typ == "POBIERZ_BAZE" then
+                rednet.send(senderId, {
+                    typ = "BAZA_PRZEJAZDOW",
+                    baza = wczytajBazePrzejazdow()
+                }, PROTOKOL)
+
             elseif msg.typ == "ALARM" then
                 dodajLog("ALARM: " .. (msg.nazwa or senderId) .. " -> " .. tostring(msg.powod), "ALARM")
                 odswiezInterfejs()
             end
         end
 
-    -- 2. Cykliczny timer odświeżania zegara, sprawdzania timeoutów i uptime
+    -- 2. Cykliczny timer odświeżania ekranu
     elseif event == "timer" and p1 == timerOdswiezania then
         odswiezInterfejs()
         timerOdswiezania = os.startTimer(1)
 
-    -- 3. Obsługa klawiszy na serwerze
-    elseif event == "key" then
-        if p1 == keys.c then
-            logiZdarzen = {}
-            dodajLog("Wyczyszczono rejestr zdarzen.", "SYSTEM")
-            odswiezInterfejs()
-        end
+    -- 3. Czyszczenie logów
+    elseif event == "key" and p1 == keys.c then
+        logiZdarzen = {}
+        dodajLog("Wyczyszczono rejestr zdarzen.", "SYSTEM")
+        odswiezInterfejs()
     end
 end
