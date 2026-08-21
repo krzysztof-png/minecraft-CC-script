@@ -84,8 +84,11 @@ local function wyczyscTablice()
 end
 
 local historiaPrzejazdow = {}
+local trybManualny = false
 
 local function odswiezTablice()
+    if trybManualny then return end
+
     local czasGry = textutils.formatTime(os.time(), true)
     local naglowek = string.format("%s [%s]", TYTUL_TABLICY, czasGry)
     wypiszWiersz(1, naglowek)
@@ -146,6 +149,7 @@ while true do
         local senderId, msg = p1, p2
         if type(msg) == "table" then
             if msg.typ == "PRZEJAZD_POCIAGU" or (msg.typ == "NOWY_LOG" and msg.kategoria == "PRZEJAZD") then
+                trybManualny = false
                 local czas = msg.czas or textutils.formatTime(os.time(), true)
                 local punkt = msg.nazwa or msg.punkt or ("KM_" .. senderId)
                 local pociag = msg.pociag
@@ -160,16 +164,55 @@ while true do
                 odswiezTablice()
 
             elseif msg.typ == "BAZA_PRZEJAZDOW" and msg.baza then
-                historiaPrzejazdow = {}
-                for i = #msg.baza, math.max(1, #msg.baza - (wysokosc - 2)), -1 do
-                    local r = msg.baza[i]
-                    local czas = r.czas_gry or (r.timestamp and r.timestamp:sub(12,16)) or "--:--"
-                    local punkt = r.posterunek or "Trasa"
-                    local pociag = r.nazwa_pociagu
-                    local etykieta = (pociag and pociag ~= "") and (punkt .. " -> " .. pociag) or punkt
-                    table.insert(historiaPrzejazdow, { czas = czas, punkt = etykieta })
+                if not trybManualny then
+                    historiaPrzejazdow = {}
+                    for i = #msg.baza, math.max(1, #msg.baza - (wysokosc - 2)), -1 do
+                        local r = msg.baza[i]
+                        local czas = r.czas_gry or (r.timestamp and r.timestamp:sub(12,16)) or "--:--"
+                        local punkt = r.posterunek or "Trasa"
+                        local pociag = r.nazwa_pociagu
+                        local etykieta = (pociag and pociag ~= "") and (punkt .. " -> " .. pociag) or punkt
+                        table.insert(historiaPrzejazdow, { czas = czas, punkt = etykieta })
+                    end
+                    odswiezTablice()
                 end
+
+            elseif msg.typ == "ZAPYTANIE_TABLICA" then
+                rednet.send(senderId, {
+                    typ = "ODPOWIEDZ_TABLICA",
+                    id = os.getComputerID(),
+                    szer = szerokosc,
+                    wys = wysokosc,
+                    typDisp = peripheral.getType(display) or "Ekran komputera"
+                }, PROTOKOL)
+
+            elseif msg.typ == "USTAW_TEKST_TABLICY" then
+                trybManualny = true
+                local nr = tonumber(msg.linia) or 1
+                local txt = msg.tekst or ""
+                wypiszWiersz(nr, txt)
+                print(string.format("[MANUAL] Wiersz %d: %s", nr, txt))
+
+            elseif msg.typ == "TEST_TABLICY" then
+                trybManualny = true
+                wyczyscTablice()
+                wypiszWiersz(1, string.format("TEST TABLICY [%dx%d]", szerokosc, wysokosc))
+                for l = 2, wysokosc do
+                    wypiszWiersz(l, string.format("%d. %s TEST", l - 1, textutils.formatTime(os.time(), true)))
+                end
+                print("[TEST] Wyslano wzorzec testowy na tablice.")
+
+            elseif msg.typ == "WYCZYSC_TABLICE" then
+                trybManualny = true
+                wyczyscTablice()
+                print("[MANUAL] Wyczyszczono tablice.")
+
+            elseif msg.typ == "RESET_TABLICY" then
+                trybManualny = false
+                wyczyscTablice()
                 odswiezTablice()
+                if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
+                print("[RESET] Przywrocono tryb ODJAZDY.")
 
             elseif msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL" then
                 print("Otrzymano zdalne polecenie REBOOT!")
@@ -185,14 +228,14 @@ while true do
             display = nowyDisp
             szerokosc, wysokosc = display.getSize()
             wyczyscTablice()
-            odswiezTablice()
+            if not trybManualny then odswiezTablice() end
         end
         pobierzServerId()
         rescanTimer = os.startTimer(5)
 
     -- Cykliczne odświeżanie zegara
     elseif event == "timer" and p1 == zegarTimer then
-        odswiezTablice()
+        if not trybManualny then odswiezTablice() end
         zegarTimer = os.startTimer(2)
     end
 end

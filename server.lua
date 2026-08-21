@@ -296,6 +296,9 @@ while true do
                 dodajLog("ALARM: " .. (msg.nazwa or senderId) .. " -> " .. tostring(msg.powod), "ALARM")
                 odswiezInterfejs()
 
+            elseif msg.typ == "ZAPYTANIE_TABLICA" or msg.typ == "USTAW_TEKST_TABLICY" or msg.typ == "TEST_TABLICY" or msg.typ == "WYCZYSC_TABLICE" or msg.typ == "RESET_TABLICY" then
+                rednet.broadcast(msg, PROTOKOL)
+
             elseif msg.typ == "REBOOT_ALL" or msg.typ == "REBOOT" then
                 dodajLog("Zdalny REBOOT sieci od #" .. senderId, "ALARM")
                 odswiezInterfejs()

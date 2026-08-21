@@ -11,10 +11,11 @@ if not modem then
 end
 rednet.open(peripheral.getName(modem))
 
-local aktywnaKarta = 1 -- 1: Węzły, 2: Logi na żywo, 3: Baza przejazdów
+local aktywnaKarta = 1 -- 1: Węzły, 2: Logi na żywo, 3: Baza przejazdów, 4: Tablica Create
 local klienci = {}
 local logi = {}
 local bazaPrzejazdow = {}
+local wykryteTablice = {} -- { [id] = { szer, wys, typDisp } }
 local MAX_LOGOW = 16
 local trybRebootConfirm = false
 
@@ -29,7 +30,7 @@ end
 local function rysujPasekKart()
     term.setCursorPos(1, 1)
     
-    -- Karta 1: Węzły (znaki 1-8)
+    -- Karta 1: Węzły
     if aktywnaKarta == 1 then
         term.setBackgroundColor(colors.blue)
         term.setTextColor(colors.white)
@@ -37,32 +38,83 @@ local function rysujPasekKart()
     else
         term.setBackgroundColor(colors.gray)
         term.setTextColor(colors.lightGray)
-        term.write(" 1:Wezly")
+        term.write("1:Wezly ")
     end
 
-    -- Karta 2: Logi (znaki 9-16)
+    -- Karta 2: Logi
     if aktywnaKarta == 2 then
         term.setBackgroundColor(colors.blue)
         term.setTextColor(colors.white)
-        term.write("[2]LOGI ")
+        term.write("[2]LOGI")
     else
         term.setBackgroundColor(colors.gray)
         term.setTextColor(colors.lightGray)
-        term.write(" 2:Logi ")
+        term.write("2:Logi ")
     end
 
-    -- Karta 3: Baza przejazdów (znaki 17-26)
+    -- Karta 3: Baza
     if aktywnaKarta == 3 then
         term.setBackgroundColor(colors.blue)
         term.setTextColor(colors.white)
-        term.write("[3]BAZA   ")
+        term.write("[3]BAZA")
     else
         term.setBackgroundColor(colors.gray)
         term.setTextColor(colors.lightGray)
-        term.write(" 3:Baza   ")
+        term.write("3:Baza ")
+    end
+
+    -- Karta 4: Tablica
+    if aktywnaKarta == 4 then
+        term.setBackgroundColor(colors.blue)
+        term.setTextColor(colors.white)
+        term.write("[4]TAB")
+    else
+        term.setBackgroundColor(colors.gray)
+        term.setTextColor(colors.lightGray)
+        term.write("4:Tab")
     end
 
     term.setBackgroundColor(colors.black)
+end
+
+-- Modalna edycja wiersza tablicy
+local function edytujWierszModal(serverId)
+    term.clear()
+    term.setCursorPos(1, 1)
+    term.setBackgroundColor(colors.blue)
+    term.setTextColor(colors.white)
+    print("====== EDYCJA WIERSZA ======")
+    term.setBackgroundColor(colors.black)
+
+    print("\nNumer wiersza (np. 1, 2...):")
+    term.setTextColor(colors.yellow)
+    write("> ")
+    term.setTextColor(colors.white)
+    local liniaStr = read()
+    local nr = tonumber(liniaStr)
+
+    if not nr or nr < 1 then
+        term.setTextColor(colors.red)
+        print("\n[!] Nieprawidlowy numer wiersza!")
+        sleep(1)
+        return
+    end
+
+    print("\nTekst do wyslania:")
+    term.setTextColor(colors.yellow)
+    write("> ")
+    term.setTextColor(colors.white)
+    local tekst = read()
+
+    dodajWpis(string.format("Wyslano L%d: %s", nr, tekst), colors.yellow)
+    rednet.broadcast({ typ = "USTAW_TEKST_TABLICY", linia = nr, tekst = tekst }, PROTOKOL)
+    if serverId then
+        rednet.send(serverId, { typ = "USTAW_TEKST_TABLICY", linia = nr, tekst = tekst }, PROTOKOL)
+    end
+
+    term.setTextColor(colors.green)
+    print("\n[OK] Wyslano tekst do tablicy!")
+    sleep(1.2)
 end
 
 -- Rysowanie zawartości ekranu
@@ -143,6 +195,30 @@ local function odswiezEkran(serverId)
                 print(pociagStr)
             end
         end
+
+    -- ================= KARTA 4: TESTOWANIE TABLICY =========
+    elseif aktywnaKarta == 4 then
+        term.setTextColor(colors.yellow)
+        print(" --- STEROWANIE TABLICA ---")
+        term.setTextColor(colors.white)
+        print(" [S] Skanuj tablice w sieci")
+        print(" [E] Edycja wiersza tablicy")
+        print(" [T] Wykonaj test wzorca")
+        print(" [C] Wyczysc cala tablice")
+        print(" [R] Przywroc tryb ODJAZDY")
+        print(string.rep("-", 26))
+
+        term.setTextColor(colors.cyan)
+        local count = 0
+        for id, t in pairs(wykryteTablice) do
+            count = count + 1
+            print(string.format(" #%-3d %-9s %dx%d", id, (t.typDisp or "Disp"):sub(1,9), t.szer or 0, t.wys or 0))
+        end
+        if count == 0 then
+            term.setTextColor(colors.gray)
+            print(" Brak informacji o tablicy.")
+            print(" Wcisnij [S] aby skanowac.")
+        end
     end
 
     -- Okno dialogowe potwierdzenia Rebootu
@@ -163,7 +239,7 @@ local function odswiezEkran(serverId)
     term.setBackgroundColor(colors.gray)
     term.setTextColor(colors.white)
     term.clearLine()
-    term.write("[1/2/3] | [X]Reboot | [Q]")
+    term.write("[1/2/3/4] | [X]Reboot | [Q]")
     term.setBackgroundColor(colors.black)
 end
 
@@ -178,6 +254,7 @@ end
 dodajWpis("Polaczono z centrala #" .. serverId, colors.green)
 rednet.send(serverId, { typ = "POBIERZ_DANE" }, PROTOKOL)
 rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
+rednet.broadcast({ typ = "ZAPYTANIE_TABLICA" }, PROTOKOL)
 
 local timerOdswiezania = os.startTimer(1)
 
@@ -195,7 +272,6 @@ while true do
                 if msg.kategoria == "SYSTEM"   then kolor = colors.yellow end
                 dodajWpis(msg.tekst, kolor)
                 
-                -- Przy nowym przejeździe odpytujemy serwer o świeżą bazę
                 if msg.kategoria == "PRZEJAZD" and serverId then
                     rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
                 end
@@ -218,6 +294,15 @@ while true do
 
             elseif msg.typ == "SYNC_KLIENCI" and msg.klienci then
                 klienci = msg.klienci
+                odswiezEkran(serverId)
+
+            elseif msg.typ == "ODPOWIEDZ_TABLICA" then
+                wykryteTablice[senderId] = {
+                    szer = msg.szer or 0,
+                    wys = msg.wys or 0,
+                    typDisp = msg.typDisp or "Disp"
+                }
+                dodajWpis(string.format("Tablica #%d: %dx%d", senderId, msg.szer or 0, msg.wys or 0), colors.lime)
                 odswiezEkran(serverId)
 
             elseif msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL" then
@@ -262,10 +347,17 @@ while true do
                 aktywnaKarta = 3
                 if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
                 odswiezEkran(serverId)
+            elseif p1 == keys.four or p1 == keys.numPad4 then
+                aktywnaKarta = 4
+                rednet.broadcast({ typ = "ZAPYTANIE_TABLICA" }, PROTOKOL)
+                if serverId then rednet.send(serverId, { typ = "ZAPYTANIE_TABLICA" }, PROTOKOL) end
+                odswiezEkran(serverId)
             elseif p1 == keys.tab then
-                aktywnaKarta = (aktywnaKarta % 3) + 1
+                aktywnaKarta = (aktywnaKarta % 4) + 1
                 if aktywnaKarta == 3 and serverId then
                     rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
+                elseif aktywnaKarta == 4 then
+                    rednet.broadcast({ typ = "ZAPYTANIE_TABLICA" }, PROTOKOL)
                 end
                 odswiezEkran(serverId)
             elseif p1 == keys.r and aktywnaKarta == 3 and serverId then
@@ -274,6 +366,41 @@ while true do
                 logi = {}
                 dodajWpis("Wyczyszczono logi lokalne.", colors.orange)
                 odswiezEkran(serverId)
+
+            -- Akcje na Karcie 4 (Tablica)
+            elseif aktywnaKarta == 4 then
+                if p1 == keys.e then
+                    edytujWierszModal(serverId)
+                    odswiezEkran(serverId)
+                elseif p1 == keys.s then
+                    dodajWpis("Skanowanie tablic w sieci...", colors.yellow)
+                    rednet.broadcast({ typ = "ZAPYTANIE_TABLICA" }, PROTOKOL)
+                    if serverId then rednet.send(serverId, { typ = "ZAPYTANIE_TABLICA" }, PROTOKOL) end
+                    odswiezEkran(serverId)
+                elseif p1 == keys.t then
+                    dodajWpis("Wyslano wzorzec testowy.", colors.cyan)
+                    rednet.broadcast({ typ = "TEST_TABLICY" }, PROTOKOL)
+                    if serverId then rednet.send(serverId, { typ = "TEST_TABLICY" }, PROTOKOL) end
+                    odswiezEkran(serverId)
+                elseif p1 == keys.c then
+                    dodajWpis("Wyczyszczono tablice.", colors.orange)
+                    rednet.broadcast({ typ = "WYCZYSC_TABLICE" }, PROTOKOL)
+                    if serverId then rednet.send(serverId, { typ = "WYCZYSC_TABLICE" }, PROTOKOL) end
+                    odswiezEkran(serverId)
+                elseif p1 == keys.r then
+                    dodajWpis("Przywrocono tryb ODJAZDY.", colors.green)
+                    rednet.broadcast({ typ = "RESET_TABLICY" }, PROTOKOL)
+                    if serverId then rednet.send(serverId, { typ = "RESET_TABLICY" }, PROTOKOL) end
+                    odswiezEkran(serverId)
+                elseif p1 == keys.x then
+                    trybRebootConfirm = true
+                    odswiezEkran(serverId)
+                elseif p1 == keys.q then
+                    term.clear()
+                    term.setCursorPos(1, 1)
+                    print("Wylaczono mobilny monitor.")
+                    break
+                end
             elseif p1 == keys.x then
                 trybRebootConfirm = true
                 odswiezEkran(serverId)
@@ -311,13 +438,16 @@ while true do
         else
             local button, x, y = p1, p2, p3
             if y == 1 then
-                if x <= 8 then
+                if x <= 7 then
                     aktywnaKarta = 1
-                elseif x <= 16 then
+                elseif x <= 13 then
                     aktywnaKarta = 2
-                else
+                elseif x <= 19 then
                     aktywnaKarta = 3
                     if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
+                else
+                    aktywnaKarta = 4
+                    rednet.broadcast({ typ = "ZAPYTANIE_TABLICA" }, PROTOKOL)
                 end
                 odswiezEkran(serverId)
             end
