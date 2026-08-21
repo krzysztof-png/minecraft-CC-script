@@ -7,10 +7,10 @@ if not target then
     error("Nie znaleziono peryferium 'create_target'!")
 end
 
-print("╔════════════════════════════════════════╗")
-print("║     DETEKTOR POCIAGOW - v2.0           ║")
-print("║   Advanced Computer + Target Block     ║")
-print("╚════════════════════════════════════════╝")
+print("=====================================")
+print("  DETEKTOR POCIAGOW - v2.0")
+print("  Advanced Computer + Target Block")
+print("=====================================")
 
 -- Konfiguracja
 local CONFIG = {
