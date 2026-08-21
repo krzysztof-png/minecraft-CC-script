@@ -123,6 +123,11 @@ while true do
 
                 print(string.format("[%s] Odnotowano: %s", czas, etykieta))
                 odswiezTablice()
+
+            elseif msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL" then
+                print("Otrzymano zdalne polecenie REBOOT!")
+                sleep(0.5)
+                os.reboot()
             end
         end
 

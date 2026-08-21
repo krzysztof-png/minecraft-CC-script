@@ -403,6 +403,18 @@ while true do
             bylSygnalRedstone = false
             rysujEkran(serverId, "Detektor Redstone zwolniony", #znanePeryferia)
         end
+
+    -- 5. Obsługa zdalnych komend Rednet (np. REBOOT)
+    elseif event == "rednet_message" and p3 == PROTOKOL then
+        local senderId, msg = p1, p2
+        if type(msg) == "table" and (msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL") then
+            term.clear()
+            term.setCursorPos(1, 1)
+            print("Otrzymano zdalne polecenie REBOOT od #" .. tostring(senderId))
+            print("Restartowanie komputera...")
+            sleep(0.5)
+            os.reboot()
+        end
     end
 end
 

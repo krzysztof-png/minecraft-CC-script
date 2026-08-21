@@ -16,6 +16,7 @@ local klienci = {}
 local logi = {}
 local bazaPrzejazdow = {}
 local MAX_LOGOW = 16
+local trybRebootConfirm = false
 
 local function dodajWpis(tekst, kolor)
     table.insert(logi, 1, { tekst = tekst, kolor = kolor or colors.white })
@@ -144,16 +145,25 @@ local function odswiezEkran(serverId)
         end
     end
 
+    -- Okno dialogowe potwierdzenia Rebootu
+    if trybRebootConfirm then
+        term.setCursorPos(1, 8)
+        term.setBackgroundColor(colors.red)
+        term.setTextColor(colors.white)
+        print("==========================")
+        print("  RESTART CALOSCI SIECI   ")
+        print("  SERWER + WSZYSTKIE KL   ")
+        print("  Potwierdz [T]ak / [N]ie ")
+        print("==========================")
+        term.setBackgroundColor(colors.black)
+    end
+
     -- Dolny pasek informacyjny
     term.setCursorPos(1, 20)
     term.setBackgroundColor(colors.gray)
     term.setTextColor(colors.white)
     term.clearLine()
-    if aktywnaKarta == 3 then
-        term.write("[1/2/3] | [R] Odswiez | [Q]")
-    else
-        term.write("[1/2/3] Karta | [Q] Wyjscie")
-    end
+    term.write("[1/2/3] | [X]Reboot | [Q]")
     term.setBackgroundColor(colors.black)
 end
 
@@ -209,6 +219,13 @@ while true do
             elseif msg.typ == "SYNC_KLIENCI" and msg.klienci then
                 klienci = msg.klienci
                 odswiezEkran(serverId)
+
+            elseif msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL" then
+                term.clear()
+                term.setCursorPos(1, 1)
+                print("Zdalny restart komputera...")
+                sleep(0.5)
+                os.reboot()
             end
         end
 
@@ -217,50 +234,93 @@ while true do
         odswiezEkran(serverId)
         timerOdswiezania = os.startTimer(1)
 
-    -- 3. Klawisze sterujące
+    -- 3. Obsługa klawiatury
     elseif event == "key" then
-        if p1 == keys.one or p1 == keys.numPad1 then
-            aktywnaKarta = 1
-            odswiezEkran(serverId)
-        elseif p1 == keys.two or p1 == keys.numPad2 then
-            aktywnaKarta = 2
-            odswiezEkran(serverId)
-        elseif p1 == keys.three or p1 == keys.numPad3 then
-            aktywnaKarta = 3
-            if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
-            odswiezEkran(serverId)
-        elseif p1 == keys.tab then
-            aktywnaKarta = (aktywnaKarta % 3) + 1
-            if aktywnaKarta == 3 and serverId then
-                rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
-            end
-            odswiezEkran(serverId)
-        elseif p1 == keys.r and aktywnaKarta == 3 and serverId then
-            rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
-        elseif p1 == keys.c and aktywnaKarta == 2 then
-            logi = {}
-            dodajWpis("Wyczyszczono logi lokalne.", colors.orange)
-            odswiezEkran(serverId)
-        elseif p1 == keys.q then
-            term.clear()
-            term.setCursorPos(1, 1)
-            print("Wylaczono mobilny monitor.")
-            break
-        end
-
-    -- 4. Obsługa dotykowa (kliknięcia na Pocket PC)
-    elseif event == "mouse_click" then
-        local button, x, y = p1, p2, p3
-        if y == 1 then
-            if x <= 8 then
-                aktywnaKarta = 1
-            elseif x <= 16 then
-                aktywnaKarta = 2
+        if trybRebootConfirm then
+            if p1 == keys.t or p1 == keys.y then
+                trybRebootConfirm = false
+                dodajWpis("Wysylanie REBOOT...", colors.red)
+                odswiezEkran(serverId)
+                rednet.broadcast({ typ = "REBOOT_ALL" }, PROTOKOL)
+                if serverId then
+                    rednet.send(serverId, { typ = "REBOOT_ALL" }, PROTOKOL)
+                end
+                sleep(0.5)
+                os.reboot()
             else
+                trybRebootConfirm = false
+                odswiezEkran(serverId)
+            end
+        else
+            if p1 == keys.one or p1 == keys.numPad1 then
+                aktywnaKarta = 1
+                odswiezEkran(serverId)
+            elseif p1 == keys.two or p1 == keys.numPad2 then
+                aktywnaKarta = 2
+                odswiezEkran(serverId)
+            elseif p1 == keys.three or p1 == keys.numPad3 then
                 aktywnaKarta = 3
                 if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
+                odswiezEkran(serverId)
+            elseif p1 == keys.tab then
+                aktywnaKarta = (aktywnaKarta % 3) + 1
+                if aktywnaKarta == 3 and serverId then
+                    rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
+                end
+                odswiezEkran(serverId)
+            elseif p1 == keys.r and aktywnaKarta == 3 and serverId then
+                rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
+            elseif p1 == keys.c and aktywnaKarta == 2 then
+                logi = {}
+                dodajWpis("Wyczyszczono logi lokalne.", colors.orange)
+                odswiezEkran(serverId)
+            elseif p1 == keys.x then
+                trybRebootConfirm = true
+                odswiezEkran(serverId)
+            elseif p1 == keys.q then
+                term.clear()
+                term.setCursorPos(1, 1)
+                print("Wylaczono mobilny monitor.")
+                break
             end
+        end
+
+    -- 4. Obsługa znaku wpisywanego (dla pewności potwierdzenia T/N)
+    elseif event == "char" and trybRebootConfirm then
+        local ch = p1:lower()
+        if ch == "t" or ch == "y" then
+            trybRebootConfirm = false
+            dodajWpis("Wysylanie REBOOT...", colors.red)
             odswiezEkran(serverId)
+            rednet.broadcast({ typ = "REBOOT_ALL" }, PROTOKOL)
+            if serverId then
+                rednet.send(serverId, { typ = "REBOOT_ALL" }, PROTOKOL)
+            end
+            sleep(0.5)
+            os.reboot()
+        else
+            trybRebootConfirm = false
+            odswiezEkran(serverId)
+        end
+
+    -- 5. Obsługa dotykowa (kliknięcia na Pocket PC)
+    elseif event == "mouse_click" then
+        if trybRebootConfirm then
+            trybRebootConfirm = false
+            odswiezEkran(serverId)
+        else
+            local button, x, y = p1, p2, p3
+            if y == 1 then
+                if x <= 8 then
+                    aktywnaKarta = 1
+                elseif x <= 16 then
+                    aktywnaKarta = 2
+                else
+                    aktywnaKarta = 3
+                    if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
+                end
+                odswiezEkran(serverId)
+            end
         end
     end
 end

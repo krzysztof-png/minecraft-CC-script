@@ -198,7 +198,7 @@ local function odswiezInterfejs()
     setC(C.status_on, C.bg)
     io.write(tostring(onlineCount))
     setC(C.subtext, C.bg)
-    print(" | [C] Reset logow")
+    print(" | [C] Reset logow | [X] Reboot sieci")
 end
 
 local timerOdswiezania = os.startTimer(1)
@@ -269,6 +269,13 @@ while true do
             elseif msg.typ == "ALARM" then
                 dodajLog("ALARM: " .. (msg.nazwa or senderId) .. " -> " .. tostring(msg.powod), "ALARM")
                 odswiezInterfejs()
+
+            elseif msg.typ == "REBOOT_ALL" or msg.typ == "REBOOT" then
+                dodajLog("Zdalny REBOOT sieci od #" .. senderId, "ALARM")
+                odswiezInterfejs()
+                rednet.broadcast({ typ = "REBOOT" }, PROTOKOL)
+                sleep(0.5)
+                os.reboot()
             end
         end
 
@@ -277,10 +284,18 @@ while true do
         odswiezInterfejs()
         timerOdswiezania = os.startTimer(1)
 
-    -- 3. Czyszczenie logów
-    elseif event == "key" and p1 == keys.c then
-        logiZdarzen = {}
-        dodajLog("Wyczyszczono rejestr zdarzen.", "SYSTEM")
-        odswiezInterfejs()
+    -- 3. Czyszczenie logów oraz zdalny restart
+    elseif event == "key" then
+        if p1 == keys.c then
+            logiZdarzen = {}
+            dodajLog("Wyczyszczono rejestr zdarzen.", "SYSTEM")
+            odswiezInterfejs()
+        elseif p1 == keys.x then
+            dodajLog("Restart sieci z serwera...", "ALARM")
+            odswiezInterfejs()
+            rednet.broadcast({ typ = "REBOOT" }, PROTOKOL)
+            sleep(0.5)
+            os.reboot()
+        end
     end
 end
