@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
---            MOBILNY MONITOR KOLEJOWY (POCKET PC - MULTI-TAB)               --
+--            MOBILNY MONITOR KOLEJOWY (POCKET PC - 3 KARTY + BAZA)           --
 --------------------------------------------------------------------------------
 local PROTOKOL     = "kolej_net"
 local SERWER_HOST  = "centrala_glowna"
@@ -11,9 +11,10 @@ if not modem then
 end
 rednet.open(peripheral.getName(modem))
 
-local aktywnaKarta = 1 -- 1: Urządzenia, 2: Logi
+local aktywnaKarta = 1 -- 1: Węzły, 2: Logi na żywo, 3: Baza przejazdów
 local klienci = {}
 local logi = {}
+local bazaPrzejazdow = {}
 local MAX_LOGOW = 16
 
 local function dodajWpis(tekst, kolor)
@@ -23,39 +24,47 @@ local function dodajWpis(tekst, kolor)
     end
 end
 
--- Rysowanie paska zakładek (góra ekranu)
+-- Rysowanie paska zakładek (góra ekranu: 26 znaków szerokości)
 local function rysujPasekKart()
     term.setCursorPos(1, 1)
     
-    -- Karta 1: Urządzenia
+    -- Karta 1: Węzły (znaki 1-8)
     if aktywnaKarta == 1 then
         term.setBackgroundColor(colors.blue)
         term.setTextColor(colors.white)
-        term.write(" [1] WEZLY ")
+        term.write("[1]WEZLY")
     else
         term.setBackgroundColor(colors.gray)
         term.setTextColor(colors.lightGray)
-        term.write("  1: Wezly ")
+        term.write(" 1:Wezly")
     end
 
-    -- Karta 2: Logi
+    -- Karta 2: Logi (znaki 9-16)
     if aktywnaKarta == 2 then
         term.setBackgroundColor(colors.blue)
         term.setTextColor(colors.white)
-        term.write(" [2] LOGI ")
+        term.write("[2]LOGI ")
     else
         term.setBackgroundColor(colors.gray)
         term.setTextColor(colors.lightGray)
-        term.write("  2: Logi ")
+        term.write(" 2:Logi ")
     end
 
-    -- Wypełnienie reszty paska
-    term.setBackgroundColor(colors.gray)
-    term.write("       ")
+    -- Karta 3: Baza przejazdów (znaki 17-26)
+    if aktywnaKarta == 3 then
+        term.setBackgroundColor(colors.blue)
+        term.setTextColor(colors.white)
+        term.write("[3]BAZA   ")
+    else
+        term.setBackgroundColor(colors.gray)
+        term.setTextColor(colors.lightGray)
+        term.write(" 3:Baza   ")
+    end
+
     term.setBackgroundColor(colors.black)
 end
 
--- Rysowanie zawartości
+-- Rysowanie zawartości ekranu
 local function odswiezEkran(serverId)
     term.clear()
     rysujPasekKart()
@@ -63,13 +72,13 @@ local function odswiezEkran(serverId)
     term.setCursorPos(1, 2)
     term.setTextColor(colors.lightGray)
     local statusSerwera = serverId and ("SRV #" .. serverId) or "LACZENIE..."
-    print(string.format("Stan: %-9s Czas: %s", statusSerwera, textutils.formatTime(os.time(), true)))
+    print(string.format("Stan: %-8s Czas: %s", statusSerwera, textutils.formatTime(os.time(), true)))
     print(string.rep("-", 26))
 
     -- ================= KARTA 1: URZĄDZENIA =================
     if aktywnaKarta == 1 then
         term.setTextColor(colors.yellow)
-        print(string.format("%-4s %-12s %s", "ID", "NAZWA", "STATUS"))
+        print(string.format("%-4s %-12s %s", "ID", "POSTERUNEK", "STATUS"))
         term.setTextColor(colors.white)
 
         local teraz = os.clock()
@@ -80,39 +89,71 @@ local function odswiezEkran(serverId)
             
             if online then
                 term.setTextColor(colors.green)
-                print(string.format("#%-3d %-12s %s", id, dane.nazwa:sub(1,12), dane.status:sub(1,7)))
+                local statusDisplay = dane.status or "OK"
+                print(string.format("#%-3d %-12s %s", id, (dane.nazwa or ""):sub(1,12), statusDisplay:sub(1,7)))
             else
                 term.setTextColor(colors.red)
-                print(string.format("#%-3d %-12s OFFLINE", id, dane.nazwa:sub(1,12)))
+                print(string.format("#%-3d %-12s OFFLINE", id, (dane.nazwa or ""):sub(1,12)))
             end
         end
 
         if count == 0 then
             term.setTextColor(colors.gray)
             print("\n Brak zarejestrowanych")
-            print(" urzadzen w sieci.")
+            print(" wezlow w sieci.")
         end
 
-    -- ================= KARTA 2: DZIENNIK LOGÓW =============
+    -- ================= KARTA 2: LOGI TELEMETRII =============
     elseif aktywnaKarta == 2 then
         if #logi == 0 then
             term.setTextColor(colors.gray)
-            print("\n Brak logow w pamieci.")
+            print("\n Brak wpisow w pamieci.")
         else
-            for i = 1, #logi do
+            for i = 1, math.min(#logi, 15) do
                 local wpis = logi[i]
                 term.setTextColor(wpis.kolor)
                 print(wpis.tekst:sub(1, 26))
             end
         end
+
+    -- ================= KARTA 3: BAZA POCIĄGÓW ===============
+    elseif aktywnaKarta == 3 then
+        term.setTextColor(colors.yellow)
+        print(string.format("%-5s %-10s %s", "CZAS", "PUNKT", "SKLAD"))
+        print(string.rep("-", 26))
+
+        if #bazaPrzejazdow == 0 then
+            term.setTextColor(colors.gray)
+            print("\n Brak historii przejazdow.")
+            print(" [R] Pobierz z serwera")
+        else
+            local startIdx = math.max(1, #bazaPrzejazdow - 12)
+            for i = #bazaPrzejazdow, startIdx, -1 do
+                local r = bazaPrzejazdow[i]
+                local czasStr = (r.czas_gry or (r.timestamp and r.timestamp:sub(12,16)) or "--:--"):sub(1,5)
+                local punktStr = (r.posterunek or "Trasa"):sub(1, 9)
+                local pociagStr = (r.nazwa_pociagu or r.train_model or "Pociag"):sub(1, 10)
+
+                term.setTextColor(colors.cyan)
+                io.write(string.format("%-5s ", czasStr))
+                term.setTextColor(colors.white)
+                io.write(string.format("%-9s ", punktStr))
+                term.setTextColor(colors.orange)
+                print(pociagStr)
+            end
+        end
     end
 
-    -- Pasek dolny
+    -- Dolny pasek informacyjny
     term.setCursorPos(1, 20)
     term.setBackgroundColor(colors.gray)
     term.setTextColor(colors.white)
     term.clearLine()
-    term.write("[1/2] Karta | [Q] Wyjscie")
+    if aktywnaKarta == 3 then
+        term.write("[1/2/3] | [R] Odswiez | [Q]")
+    else
+        term.write("[1/2/3] Karta | [Q] Wyjscie")
+    end
     term.setBackgroundColor(colors.black)
 end
 
@@ -126,6 +167,7 @@ end
 
 dodajWpis("Polaczono z centrala #" .. serverId, colors.green)
 rednet.send(serverId, { typ = "POBIERZ_DANE" }, PROTOKOL)
+rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
 
 local timerOdswiezania = os.startTimer(1)
 
@@ -142,6 +184,11 @@ while true do
                 if msg.kategoria == "ALARM"    then kolor = colors.red end
                 if msg.kategoria == "SYSTEM"   then kolor = colors.yellow end
                 dodajWpis(msg.tekst, kolor)
+                
+                -- Przy nowym przejeździe odpytujemy serwer o świeżą bazę
+                if msg.kategoria == "PRZEJAZD" and serverId then
+                    rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
+                end
                 odswiezEkran(serverId)
 
             elseif msg.typ == "PELNE_DANE" then
@@ -149,9 +196,14 @@ while true do
                 if msg.logi then
                     logi = {}
                     for _, l in ipairs(msg.logi) do
-                        table.insert(logi, { tekst = l, kolor = colors.lightGray })
+                        local txt = type(l) == "table" and (string.format("[%s] %s", l.godzina, l.tekst)) or tostring(l)
+                        table.insert(logi, { tekst = txt, kolor = colors.lightGray })
                     end
                 end
+                odswiezEkran(serverId)
+
+            elseif msg.typ == "BAZA_PRZEJAZDOW" and msg.baza then
+                bazaPrzejazdow = msg.baza
                 odswiezEkran(serverId)
 
             elseif msg.typ == "SYNC_KLIENCI" and msg.klienci then
@@ -160,12 +212,12 @@ while true do
             end
         end
 
-    -- 2. Cykliczne odświeżanie zegara i timeoutów urządzeń
+    -- 2. Cykliczny timer odświeżania zegara i timeoutów
     elseif event == "timer" and p1 == timerOdswiezania then
         odswiezEkran(serverId)
         timerOdswiezania = os.startTimer(1)
 
-    -- 3. Sterowanie klawiaturą
+    -- 3. Klawisze sterujące
     elseif event == "key" then
         if p1 == keys.one or p1 == keys.numPad1 then
             aktywnaKarta = 1
@@ -173,28 +225,40 @@ while true do
         elseif p1 == keys.two or p1 == keys.numPad2 then
             aktywnaKarta = 2
             odswiezEkran(serverId)
-        elseif p1 == keys.tab then
-            aktywnaKarta = (aktywnaKarta == 1) and 2 or 1
+        elseif p1 == keys.three or p1 == keys.numPad3 then
+            aktywnaKarta = 3
+            if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
             odswiezEkran(serverId)
+        elseif p1 == keys.tab then
+            aktywnaKarta = (aktywnaKarta % 3) + 1
+            if aktywnaKarta == 3 and serverId then
+                rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
+            end
+            odswiezEkran(serverId)
+        elseif p1 == keys.r and aktywnaKarta == 3 and serverId then
+            rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
         elseif p1 == keys.c and aktywnaKarta == 2 then
             logi = {}
-            dodajWpis("Wyczyszczono logi.", colors.orange)
+            dodajWpis("Wyczyszczono logi lokalne.", colors.orange)
             odswiezEkran(serverId)
         elseif p1 == keys.q then
             term.clear()
             term.setCursorPos(1, 1)
-            print("Wylaczono monitor.")
+            print("Wylaczono mobilny monitor.")
             break
         end
 
-    -- 4. Obsługa dotykowa (kliknięcia na ekranie Pocket PC)
+    -- 4. Obsługa dotykowa (kliknięcia na Pocket PC)
     elseif event == "mouse_click" then
         local button, x, y = p1, p2, p3
         if y == 1 then
-            if x <= 12 then
+            if x <= 8 then
                 aktywnaKarta = 1
-            else
+            elseif x <= 16 then
                 aktywnaKarta = 2
+            else
+                aktywnaKarta = 3
+                if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
             end
             odswiezEkran(serverId)
         end
