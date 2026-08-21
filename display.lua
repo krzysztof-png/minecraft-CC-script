@@ -113,13 +113,15 @@ while true do
             if msg.typ == "PRZEJAZD_POCIAGU" or (msg.typ == "NOWY_LOG" and msg.kategoria == "PRZEJAZD") then
                 local czas = msg.czas or textutils.formatTime(os.time(), true)
                 local punkt = msg.nazwa or msg.punkt or ("KM_" .. senderId)
+                local pociag = msg.pociag
+                local etykieta = pociag and (punkt .. " -> " .. pociag) or punkt
 
-                table.insert(historiaPrzejazdow, 1, { czas = czas, punkt = punkt })
+                table.insert(historiaPrzejazdow, 1, { czas = czas, punkt = etykieta })
                 if #historiaPrzejazdow > (wysokosc - 1) then
                     table.remove(historiaPrzejazdow)
                 end
 
-                print(string.format("[%s] Odnotowano: %s", czas, punkt))
+                print(string.format("[%s] Odnotowano: %s", czas, etykieta))
                 odswiezTablice()
             end
         end

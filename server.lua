@@ -84,12 +84,14 @@ local function pobierzUptime()
     return string.format("%02dh %02dm", godziny, minuty)
 end
 
-local function dodajLog(tekst, kategoria)
+local function dodajLog(tekst, kategoria, meta)
     local godzina = textutils.formatTime(os.time(), true)
     local wpis = {
         tekst = tekst,
         godzina = godzina,
-        kategoria = kategoria or "INFO"
+        kategoria = kategoria or "INFO",
+        punkt = meta and meta.punkt or nil,
+        pociag = meta and meta.pociag or nil
     }
     
     table.insert(logiZdarzen, 1, wpis)
@@ -100,7 +102,10 @@ local function dodajLog(tekst, kategoria)
     rednet.broadcast({
         typ = "NOWY_LOG",
         tekst = string.format("[%s] %s", godzina, tekst),
-        kategoria = wpis.kategoria
+        kategoria = wpis.kategoria,
+        punkt = wpis.punkt,
+        pociag = wpis.pociag,
+        czas = godzina
     }, PROTOKOL)
 end
 
@@ -225,7 +230,7 @@ while true do
                 local punkt = msg.nazwa or ("ID #" .. senderId)
                 local pociagNazwa = msg.pociag or "Nieznany pociag"
                 
-                dodajLog(string.format("%s: %s", punkt, pociagNazwa), "PRZEJAZD")
+                dodajLog(string.format("%s: %s", punkt, pociagNazwa), "PRZEJAZD", { punkt = punkt, pociag = pociagNazwa })
 
                 -- Zapis do bazy danych
                 local rekord = {
