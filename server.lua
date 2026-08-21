@@ -4,12 +4,41 @@
 local STRONA_MONITORA = "right"
 local SKALA_TEKSTU    = 0.8 -- W CC wartości to wielokrotności 0.5 (zostanie zaokrąglona)
 
+local targetTerm = term.current()
 if peripheral.getType(STRONA_MONITORA) == "monitor" then
     local mon = peripheral.wrap(STRONA_MONITORA)
     pcall(function() mon.setTextScale(SKALA_TEKSTU) end)
     term.redirect(mon)
-    term.clear()
-    term.setCursorPos(1, 1)
+    targetTerm = mon
+end
+
+local isColor = term.isColor()
+
+--------------------------------------------------------------------------------
+--                         PALETA KOLORÓW I STYLE                             --
+--------------------------------------------------------------------------------
+local C = {
+    bg          = colors.black,
+    header_bg   = colors.blue,
+    header_fg   = colors.white,
+    table_head  = colors.yellow,
+    text        = colors.white,
+    subtext     = colors.lightGray,
+    border      = colors.gray,
+    status_on   = colors.green,
+    status_off  = colors.red,
+    log_info    = colors.lightBlue,
+    log_pass    = colors.orange,
+    log_alarm   = colors.red,
+    log_sys     = colors.purple
+}
+
+-- Funkcja pomocnicza do bezpiecznego kolorowania tekstu
+local function setC(fg, bg)
+    if isColor then
+        if fg then term.setTextColor(fg) end
+        if bg then term.setBackgroundColor(bg) end
+    end
 end
 
 --------------------------------------------------------------------------------
@@ -43,7 +72,11 @@ end
 -- Funkcja dodawania wpisu i natychmiastowego broadcastu do urządzeń mobilnych
 local function dodajLog(tekst, kategoria)
     local godzina = textutils.formatTime(os.time(), true)
-    local wpis = string.format("[%s] %s", godzina, tekst)
+    local wpis = {
+        tekst = tekst,
+        godzina = godzina,
+        kategoria = kategoria or "INFO"
+    }
     
     table.insert(logiZdarzen, 1, wpis)
     if #logiZdarzen > MAX_LOGOW then
@@ -53,53 +86,109 @@ local function dodajLog(tekst, kategoria)
     -- Rozsyłanie wpisu na żywo do Pocket PC
     rednet.broadcast({
         typ = "NOWY_LOG",
-        tekst = wpis,
-        kategoria = kategoria or "INFO"
+        tekst = string.format("[%s] %s", godzina, tekst),
+        kategoria = wpis.kategoria
     }, PROTOKOL)
 end
 
 -- Rysowanie głównego interfejsu serwera / monitora
 local function odswiezInterfejs()
+    local w, h = term.getSize()
+    setC(C.text, C.bg)
     term.clear()
     term.setCursorPos(1, 1)
-    print("==================================================")
-    print("         CENTRALA KOLEJOWA - MONITOR SYSTEMU      ")
-    print(string.format(" Uptime: %-12s | Czas gry: %s", pobierzUptime(), textutils.formatTime(os.time(), true)))
-    print("==================================================")
+
+    -- Nagłówek górny
+    setC(C.header_fg, C.header_bg)
+    local title = " CENTRALA KOLEJOWA - MONITOR SYSTEMU "
+    local pad = math.max(0, math.floor((w - #title) / 2))
+    print(string.rep(" ", pad) .. title .. string.rep(" ", w - #title - pad))
+
+    -- Pasek informacyjny
+    setC(C.subtext, C.bg)
+    local uptimeStr = string.format(" Uptime: %-10s | Czas gry: %s", pobierzUptime(), textutils.formatTime(os.time(), true))
+    print(uptimeStr .. string.rep(" ", math.max(0, w - #uptimeStr)))
+
+    -- Separator
+    setC(C.border, C.bg)
+    print(string.rep("=", w))
+
+    -- Nagłówki tabeli
+    setC(C.table_head, C.bg)
     print(string.format("%-4s | %-14s | %-9s | %-8s", "ID", "NAZWA", "TRYB", "STATUS"))
-    print("--------------------------------------------------")
+    
+    setC(C.border, C.bg)
+    print(string.rep("-", w))
 
     local teraz = os.clock()
     local onlineCount = 0
 
+    -- Wypisanie zarejestrowanych węzłów
     for id, dane in pairs(klienci) do
         local online = (teraz - dane.lastSeen) <= TIMEOUT_SEK
         local statusStr = online and dane.status or "OFFLINE"
         if online then onlineCount = onlineCount + 1 end
 
-        print(string.format("#%-3d | %-14s | %-9s | %-8s", 
+        -- ID i Nazwa
+        setC(C.text, C.bg)
+        io.write(string.format("#%-3d | %-14s | %-9s | ", 
             id, 
             dane.nazwa:sub(1, 14), 
-            dane.tryb:sub(1, 9), 
-            statusStr:sub(1, 8)
+            dane.tryb:sub(1, 9)
         ))
+
+        -- Kolorowany status
+        if online then
+            setC(C.status_on, C.bg)
+        else
+            setC(C.status_off, C.bg)
+        end
+        print(string.format("%-8s", statusStr:sub(1, 8)))
     end
 
     if next(klienci) == nil then
+        setC(C.subtext, C.bg)
         print("  Oczekiwanie na rejestracje wezlow sieci...")
     end
 
-    print("--------------------------------------------------")
+    -- Sekcja Logów
+    setC(C.border, C.bg)
+    print(string.rep("-", w))
+    setC(C.table_head, C.bg)
     print("OSTATNIE ZDARZENIA I TELEMETRIA:")
+
     if #logiZdarzen == 0 then
+        setC(C.subtext, C.bg)
         print("  Brak zarejestrowanych zdarzen.")
     else
         for _, log in ipairs(logiZdarzen) do
-            print(" " .. log)
+            -- Czas zdarzenia
+            setC(C.subtext, C.bg)
+            io.write(string.format(" [%s] ", log.godzina))
+
+            -- Dobór koloru według kategorii zdarzenia
+            if log.kategoria == "ALARM" then
+                setC(C.log_alarm, C.bg)
+            elseif log.kategoria == "PRZEJAZD" then
+                setC(C.log_pass, C.bg)
+            elseif log.kategoria == "SYSTEM" then
+                setC(C.log_sys, C.bg)
+            else
+                setC(C.log_info, C.bg)
+            end
+            print(log.tekst)
         end
     end
-    print("--------------------------------------------------")
-    print(string.format("Aktywne wezly: %d | [C] Reset logow", onlineCount))
+
+    -- Stopka
+    setC(C.border, C.bg)
+    print(string.rep("-", w))
+    setC(C.subtext, C.bg)
+    io.write("Aktywne wezly: ")
+    setC(C.status_on, C.bg)
+    io.write(tostring(onlineCount))
+    setC(C.subtext, C.bg)
+    print(" | [C] Reset logow")
 end
 
 -- Inicjalizacja pętli
