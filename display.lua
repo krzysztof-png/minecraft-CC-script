@@ -14,57 +14,39 @@ rednet.open(peripheral.getName(modem))
 
 -- 2. Wyszukanie wyświetlacza (Display Link / Display Board / Monitor)
 local function znajdzWyswietlacz()
-    -- 1. Szukanie dedykowanych urządzeń Create po typie
-    for _, name in ipairs(peripheral.getNames()) do
-        if name ~= peripheral.getName(modem) then
-            local t = (peripheral.getType(name) or ""):lower()
-            if t:find("display") or t:find("board") or t:find("target") then
-                local dev = peripheral.wrap(name)
-                if dev and dev.getSize then
-                    return dev, name, t
-                end
-            end
-        end
-    end
-
-    -- 2. Szukanie standardowego monitora ComputerCraft
-    local mon = peripheral.find("monitor")
-    if mon and mon.getSize then
-        pcall(function() mon.setTextScale(1.0) end)
-        return mon, peripheral.getName(mon), "monitor"
-    end
-
-    -- 3. Szukanie peryferium z metodami pisania po wierszach
+    -- 1. Sprawdzenie peryferiów podłączonych po stronach lub po nazwie
     for _, name in ipairs(peripheral.getNames()) do
         if name ~= peripheral.getName(modem) then
             local dev = peripheral.wrap(name)
-            if dev and (dev.setLine or dev.setRow or dev.updateLine or dev.writeLine) then
-                return dev, name, peripheral.getType(name) or "display"
-            end
-        end
-    end
-
-    -- 4. Szukanie dowolnego peryferium z getSize (wykluczając modemy, napędy, komputery, żółwie)
-    for _, name in ipairs(peripheral.getNames()) do
-        if name ~= peripheral.getName(modem) then
-            local t = (peripheral.getType(name) or ""):lower()
-            if not t:find("modem") and not t:find("drive") and not t:find("computer") and not t:find("turtle") then
-                local dev = peripheral.wrap(name)
-                if dev and dev.getSize and (dev.write or dev.setLine or dev.setCursorPos) then
+            if dev and (dev.write or dev.setLine or dev.update) then
+                local t = (peripheral.getType(name) or ""):lower()
+                if not t:find("modem") and not t:find("drive") and not t:find("computer") and not t:find("turtle") then
                     return dev, name, t
                 end
             end
         end
     end
 
-    -- 5. Domyślny fallback: Ekran komputera
+    -- 2. Domyślny fallback: Ekran komputera
     return term.native(), "terminal", "terminal"
 end
 
 local display, dispName, dispType = znajdzWyswietlacz()
-local szerokosc, wysokosc = display.getSize()
 
--- Odświeżenie płatków/bufora wyświetlacza Create
+local function pobierzWymiary()
+    if display and display.getSize then
+        local w, h = pcall(display.getSize)
+        if w and h and type(w) == "number" and w > 0 then
+            return w, h
+        end
+    end
+    local w, h = term.getSize()
+    return w or 32, h or 6
+end
+
+local szerokosc, wysokosc = pobierzWymiary()
+
+-- Odświeżenie płatków/bufora wyświetlacza Create (wywołanie display.update())
 local function odswiezFlapyTablicy()
     if not display then return end
     if display.update then pcall(display.update) end
@@ -73,13 +55,11 @@ local function odswiezFlapyTablicy()
     if display.updateBoard then pcall(display.updateBoard) end
 end
 
--- Funkcja bezpiecznego zapisu wiersza (obsługuje 1-index oraz 0-index w Create)
-local function wypiszWiersz(nrLinii, tekst)
+-- Zapis pojedynczego wiersza bez natychmiastowego update()
+local function wypiszWierszBezUpdate(nrLinii, tekst)
     if not display or nrLinii < 1 or nrLinii > wysokosc then return end
 
     local sformatowany = string.format("%-" .. szerokosc .. "s", tekst):sub(1, szerokosc)
-    local sukces = false
-    local errLast = nil
 
     if display.setTextColor then
         pcall(function()
@@ -91,57 +71,41 @@ local function wypiszWiersz(nrLinii, tekst)
         end)
     end
 
-    -- 1. Metoda setLine (1-indexed oraz 0-indexed)
+    -- 1. Metoda setCursorPos + write (zgodnie z wzorcem Create Display Link)
+    if display.setCursorPos and display.write then
+        pcall(display.setCursorPos, 1, nrLinii)
+        pcall(display.write, sformatowany)
+    end
+
+    -- 2. Metoda setLine (1-indexed oraz 0-indexed)
     if display.setLine then
-        local ok, err = pcall(display.setLine, nrLinii, sformatowany)
-        if ok then sukces = true else errLast = err end
-
-        if not sukces and (nrLinii - 1) >= 0 then
-            local ok0, err0 = pcall(display.setLine, nrLinii - 1, sformatowany)
-            if ok0 then sukces = true else errLast = err0 end
+        local ok = pcall(display.setLine, nrLinii, sformatowany)
+        if not ok and (nrLinii - 1) >= 0 then
+            pcall(display.setLine, nrLinii - 1, sformatowany)
         end
     end
 
-    -- 2. Metoda setRow (1-indexed oraz 0-indexed)
-    if not sukces and display.setRow then
-        local ok, err = pcall(display.setRow, nrLinii, sformatowany)
-        if ok then sukces = true else
-            local ok0 = pcall(display.setRow, nrLinii - 1, sformatowany)
-            if ok0 then sukces = true end
+    -- 3. Metoda setRow
+    if display.setRow then
+        local ok = pcall(display.setRow, nrLinii, sformatowany)
+        if not ok and (nrLinii - 1) >= 0 then
+            pcall(display.setRow, nrLinii - 1, sformatowany)
         end
     end
+end
 
-    -- 3. Metody alternatywne (updateLine / writeLine / setText)
-    if not sukces and display.updateLine then
-        local ok = pcall(display.updateLine, nrLinii, sformatowany)
-        if ok then sukces = true end
-    end
-    if not sukces and display.writeLine then
-        local ok = pcall(display.writeLine, nrLinii, sformatowany)
-        if ok then sukces = true end
-    end
-    if not sukces and display.setText then
-        local ok = pcall(display.setText, nrLinii, sformatowany)
-        if ok then sukces = true end
-    end
-
-    -- 4. Metoda setCursorPos + write (dla CC Monitor / term.native)
-    if not sukces and display.setCursorPos and display.write then
-        local ok1 = pcall(display.setCursorPos, 1, nrLinii)
-        local ok2, err2 = pcall(display.write, sformatowany)
-        if ok1 and ok2 then sukces = true else errLast = err2 end
-    end
-
-    if not sukces and errLast then
-        print(string.format("[OSTRZEZENIE] Blad zapisu wiersza %d: %s", nrLinii, tostring(errLast)))
-    end
+-- Zapis wiersza z natychmiastowym wywołaniem update()
+local function wypiszWiersz(nrLinii, tekst)
+    wypiszWierszBezUpdate(nrLinii, tekst)
+    odswiezFlapyTablicy()
 end
 
 local function wyczyscTablice()
     if display.clear then
-        pcall(function() display.clear() end)
-    else
-        for i = 1, wysokosc do wypiszWiersz(i, "") end
+        pcall(display.clear)
+    end
+    for i = 1, wysokosc do
+        wypiszWierszBezUpdate(i, "")
     end
     odswiezFlapyTablicy()
 end
@@ -152,18 +116,23 @@ local trybManualny = false
 local function odswiezTablice()
     if trybManualny then return end
 
+    if display.clear then
+        pcall(display.clear)
+    end
+
     local czasGry = textutils.formatTime(os.time(), true)
     local naglowek = string.format("%s [%s]", TYTUL_TABLICY, czasGry)
-    wypiszWiersz(1, naglowek)
+    wypiszWierszBezUpdate(1, naglowek)
 
     for i = 2, wysokosc do
         local wpis = historiaPrzejazdow[i - 1]
         if wpis then
-            wypiszWiersz(i, string.format("%s %s", wpis.czas, wpis.punkt))
+            wypiszWierszBezUpdate(i, string.format("%s %s", wpis.czas, wpis.punkt))
         else
-            wypiszWiersz(i, "")
+            wypiszWierszBezUpdate(i, "")
         end
     end
+
     odswiezFlapyTablicy()
 end
 
@@ -262,15 +231,14 @@ while true do
                 local nr = tonumber(msg.linia) or 1
                 local txt = msg.tekst or ""
                 wypiszWiersz(nr, txt)
-                odswiezFlapyTablicy()
                 print(string.format("[MANUAL] Wiersz %d: %s", nr, txt))
 
             elseif msg.typ == "TEST_TABLICY" then
                 trybManualny = true
-                wyczyscTablice()
-                wypiszWiersz(1, string.format("TEST TABLICY [%dx%d]", szerokosc, wysokosc))
+                if display.clear then pcall(display.clear) end
+                wypiszWierszBezUpdate(1, string.format("TEST TABLICY [%dx%d]", szerokosc, wysokosc))
                 for l = 2, wysokosc do
-                    wypiszWiersz(l, string.format("%d. %s TEST", l - 1, textutils.formatTime(os.time(), true)))
+                    wypiszWierszBezUpdate(l, string.format("%d. %s TEST", l - 1, textutils.formatTime(os.time(), true)))
                 end
                 odswiezFlapyTablicy()
                 print("[TEST] Wyslano wzorzec testowy na tablice.")
@@ -314,7 +282,7 @@ while true do
             display = nowyDisp
             dispName = nName
             dispType = nType
-            szerokosc, wysokosc = display.getSize()
+            szerokosc, wysokosc = pobierzWymiary()
             wyczyscTablice()
             if not trybManualny then odswiezTablice() end
         end
