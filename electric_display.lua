@@ -1,11 +1,11 @@
 --------------------------------------------------------------------------------
---      PROFESJONALNA ELEKTRONICZNA TABLICA 3x1 (electric_display.lua)           --
+--    DWUSTRONNY WYŚWIETLACZ 3x1 (2 MONITORY: LEWY TOR + PRAWY TOR)             --
+--                       electric_display.lua                                 --
 --------------------------------------------------------------------------------
-local PROTOKOL      = "kolej_net"
-local SERWER_HOST   = "centrala_glowna"
-local TYTUL_TABLICY = "ODJAZDY"
-local NAZWA_STACJI  = "STACJA CENTRALNA"
-local MOJE_ID       = os.getComputerID()
+local CONFIG_FILE = "electric_config.json"
+local PROTOKOL    = "kolej_net"
+local SERWER_HOST = "centrala_glowna"
+local MOJE_ID     = os.getComputerID()
 
 local tts = fs.exists("tts.lua") and dofile("tts.lua") or nil
 
@@ -30,183 +30,269 @@ local function zagrajGongDworcowy()
 end
 
 --------------------------------------------------------------------------------
---                WYKRYWANIE I ADAPTACJA MONITORA / DISP 3x1                  --
+--                KREATOR KONFIGURACJI EKRANÓW (TOR LEWY / PRAWY)              --
 --------------------------------------------------------------------------------
-local function znajdzWyswietlacz3x1()
-    local mon = peripheral.find("monitor")
-    if mon then
-        pcall(function() mon.setTextScale(0.5) end)
-        return mon, peripheral.getName(mon), "monitor"
+local function wczytajConfig()
+    if fs.exists(CONFIG_FILE) then
+        local f = fs.open(CONFIG_FILE, "r")
+        local tresc = f.readAll()
+        f.close()
+        return textutils.unserializeJSON(tresc)
     end
+    return nil
+end
 
+local function zapiszConfig(cfg)
+    local f = fs.open(CONFIG_FILE, "w")
+    f.write(textutils.serializeJSON(cfg))
+    f.close()
+end
+
+local function wyszukajDostepneMonitory()
+    local lista = {}
     for _, name in ipairs(peripheral.getNames()) do
         if name ~= peripheral.getName(modem) then
-            local dev = peripheral.wrap(name)
-            if dev and (dev.write or dev.setLine or dev.update) then
-                local t = (peripheral.getType(name) or ""):lower()
-                if not t:find("modem") and not t:find("drive") and not t:find("computer") then
-                    return dev, name, t
-                end
+            local t = (peripheral.getType(name) or ""):lower()
+            if t:find("monitor") or (peripheral.wrap(name).write and not t:find("computer") and not t:find("drive")) then
+                table.insert(lista, name)
             end
         end
     end
-
-    return term.native(), "terminal", "terminal"
+    return lista
 end
 
-local display, dispName, dispType = znajdzWyswietlacz3x1()
+local function kreatorKonfiguracji()
+    term.clear()
+    term.setCursorPos(1, 1)
+    term.setBackgroundColor(colors.blue)
+    term.setTextColor(colors.white)
+    print("========================================")
+    print("   KONFIGURACJA ELEKTRONICZNA 3x1 2xTOR ")
+    print("========================================")
+    term.setBackgroundColor(colors.black)
 
-local function pobierzWymiary()
-    if display and display.getSize then
-        local ok, w, h = pcall(display.getSize)
-        if ok and w and h and type(w) == "number" and w > 0 then
-            return w, h
+    print("\nNazwa Stacji (np. Centralna):")
+    term.setTextColor(colors.yellow)
+    write("> ")
+    term.setTextColor(colors.white)
+    local stacja = read()
+    if stacja == "" then stacja = "Stacja_" .. MOJE_ID end
+
+    print("\nNumer Peronu (np. 1, 2...):")
+    term.setTextColor(colors.yellow)
+    write("> ")
+    term.setTextColor(colors.white)
+    local peron = read()
+    if peron == "" then peron = "1" end
+
+    local monitory = wyszukajDostepneMonitory()
+
+    print("\n--- MONITORY W SIECI ---")
+    if #monitory == 0 then
+        term.setTextColor(colors.red)
+        print("Nie znaleziono zewnetrznych monitorow!")
+        print("Uzyty zostanie ekran komputera jako lewy tor.")
+    else
+        for idx, mName in ipairs(monitory) do
+            print(string.format(" [%d] %s", idx, mName))
         end
     end
-    local w, h = term.getSize()
-    return w or 26, h or 6
-end
 
-local szerokosc, wysokosc = pobierzWymiary()
+    print("\nWybierz nazwe/tor dla LEWEJ STRONY (np. Tor 1):")
+    term.setTextColor(colors.yellow)
+    write("Numer toru lewego [np. 1]: ")
+    term.setTextColor(colors.white)
+    local torLewy = read()
+    if torLewy == "" then torLewy = "1" end
 
-local function odswiezFlapyTablicy()
-    if not display then return end
-    if display.update then pcall(display.update) end
-    if display.flush then pcall(display.flush) end
-    if display.render then pcall(display.render) end
-end
-
-local function setC(fg, bg)
-    if display.setTextColor then pcall(display.setTextColor, fg or colors.white) end
-    if display.setBackgroundColor then pcall(display.setBackgroundColor, bg or colors.black) end
-end
-
-local function wypiszWiersz(nrLinii, tekst, fg, bg)
-    if not display or nrLinii < 1 or nrLinii > wysokosc then return end
-
-    local sformatowany = string.format("%-" .. szerokosc .. "s", tekst):sub(1, szerokosc)
-    setC(fg or colors.white, bg or colors.black)
-
-    if display.setCursorPos and display.write then
-        pcall(display.setCursorPos, 1, nrLinii)
-        pcall(display.write, sformatowany)
+    local monLewyName = monitory[1] or "terminal"
+    if #monitory > 1 then
+        write(string.format("Wybierz monitor dla Toru %s [1-%d, domyslny 1]: ", torLewy, #monitory))
+        local idxL = tonumber(read()) or 1
+        monLewyName = monitory[idxL] or monitory[1]
     end
 
-    if display.setLine then
-        local ok = pcall(display.setLine, nrLinii, sformatowany)
+    print("\nWybierz nazwe/tor dla PRAWEJ STRONY (np. Tor 2):")
+    term.setTextColor(colors.yellow)
+    write("Numer toru prawego [np. 2]: ")
+    term.setTextColor(colors.white)
+    local torPrawy = read()
+    if torPrawy == "" then torPrawy = "2" end
+
+    local monPrawyName = monitory[2] or monLewyName
+    if #monitory > 1 then
+        write(string.format("Wybierz monitor dla Toru %s [1-%d, domyslny 2]: ", torPrawy, #monitory))
+        local idxP = tonumber(read()) or 2
+        monPrawyName = monitory[idxP] or monitory[2]
+    end
+
+    local cfg = {
+        stacja = stacja,
+        peron = peron,
+        torLewy = torLewy,
+        monLewy = monLewyName,
+        torPrawy = torPrawy,
+        monPrawy = monPrawyName
+    }
+    zapiszConfig(cfg)
+    return cfg
+end
+
+local config = wczytajConfig()
+if not config then
+    config = kreatorKonfiguracji()
+end
+
+--------------------------------------------------------------------------------
+--                PODŁĄCZENIE I PRZYGOTOWANIE MONITORÓW                       --
+--------------------------------------------------------------------------------
+local function InicjalizujMonitor(name)
+    if name == "terminal" or not name then
+        return term.native(), "terminal", 26, 6
+    end
+    local dev = peripheral.wrap(name)
+    if dev then
+        pcall(function() dev.setTextScale(0.5) end)
+        local w, h = 26, 6
+        if dev.getSize then
+            local ok, dw, dh = pcall(dev.getSize)
+            if ok and dw and dh and dw > 0 then w, h = dw, dh end
+        end
+        return dev, name, w, h
+    end
+    return term.native(), "terminal", 26, 6
+end
+
+local dispLewy, nameLewy, wLewy, hLewy = InicjalizujMonitor(config.monLewy)
+local dispPrawy, namePrawy, wPrawy, hPrawy = InicjalizujMonitor(config.monPrawy)
+
+local function setC(dev, fg, bg)
+    if dev.setTextColor then pcall(dev.setTextColor, fg or colors.white) end
+    if dev.setBackgroundColor then pcall(dev.setBackgroundColor, bg or colors.black) end
+end
+
+local function odswiezFlapy(dev)
+    if not dev then return end
+    if dev.update then pcall(dev.update) end
+    if dev.flush then pcall(dev.flush) end
+    if dev.render then pcall(dev.render) end
+end
+
+local function wypiszWiersz(dev, wMax, hMax, nrLinii, tekst, fg, bg)
+    if not dev or nrLinii < 1 or nrLinii > hMax then return end
+
+    local sformatowany = string.format("%-" .. wMax .. "s", tekst):sub(1, wMax)
+    setC(dev, fg or colors.white, bg or colors.black)
+
+    if dev.setCursorPos and dev.write then
+        pcall(dev.setCursorPos, 1, nrLinii)
+        pcall(dev.write, sformatowany)
+    end
+
+    if dev.setLine then
+        local ok = pcall(dev.setLine, nrLinii, sformatowany)
         if not ok and (nrLinii - 1) >= 0 then
-            pcall(display.setLine, nrLinii - 1, sformatowany)
+            pcall(dev.setLine, nrLinii - 1, sformatowany)
         end
     end
 end
 
-local function wyczyscTablice()
-    setC(colors.white, colors.black)
-    if display.clear then pcall(display.clear) end
-    for i = 1, wysokosc do
-        wypiszWiersz(i, "", colors.white, colors.black)
+local function wyczyscMonitor(dev, wMax, hMax)
+    setC(dev, colors.white, colors.black)
+    if dev.clear then pcall(dev.clear) end
+    for i = 1, hMax do
+        wypiszWiersz(dev, wMax, hMax, i, "", colors.white, colors.black)
     end
-    odswiezFlapyTablicy()
+    odswiezFlapy(dev)
 end
 
 --------------------------------------------------------------------------------
---            STAN I PROFESJONALNY UKŁAD GRAFICZNY 3x1                         --
+--        CZYTELNE I PROFESJONALNE RENDEROWANIE TORU (1 TOR NA EKRAN)          --
 --------------------------------------------------------------------------------
-local historiaPrzejazdow = {}
+local bazaLewy = {}
+local bazaPrawy = {}
 local trybManualny = false
 local scrollOffset = 0
-local jezykAngielski = false
 
-local function odswiezTablicePro()
+local function rysujWyswietlaczToru(dev, wMax, hMax, nrPeronu, nrToru, bazaDanych)
     if trybManualny then return end
 
     local czasGry = textutils.formatTime(os.time(), true)
-    jezykAngielski = (math.floor(scrollOffset / 16) % 2 == 1)
+    local isEN = (math.floor(scrollOffset / 16) % 2 == 1)
 
-    local txtTytul = jezykAngielski and "DEPARTURES" or "ODJAZDY"
-    local naglowek = string.format(" %s | %s [%s] ", NAZWA_STACJI, txtTytul, czasGry)
-    if #naglowek < szerokosc then
-        local spacja = math.floor((szerokosc - #naglowek) / 2)
-        naglowek = string.rep(" ", spacja) .. naglowek .. string.rep(" ", szerokosc - #naglowek - spacja)
-    end
-    wypiszWiersz(1, naglowek:sub(1, szerokosc), colors.yellow, colors.blue)
+    -- LINIA 1: NAGŁÓWEK TORU (Niebieskie tło, Złoty tekst)
+    local txtP = isEN and "PLATFORM" or "PERON"
+    local txtT = isEN and "TRACK" or "TOR"
+    local naglowek = string.format(" %s %s | %s %s | %s ", txtP, nrPeronu, txtT, nrToru, config.stacja:upper())
+    local pad = math.max(0, math.floor((wMax - #naglowek) / 2))
+    local pelnyNaglowek = string.rep(" ", pad) .. naglowek .. string.rep(" ", wMax - #naglowek - pad)
+    wypiszWiersz(dev, wMax, hMax, 1, pelnyNaglowek:sub(1, wMax), colors.yellow, colors.blue)
 
-    local startRow = 2
-    if wysokosc >= 6 then
-        local txtTime  = jezykAngielski and "TIME"  or "CZAS"
-        local txtTrain = jezykAngielski and "TRAIN / DESTINATION" or "POCIAG / RELACJA"
-        local txtTrack = jezykAngielski and "TRACK" or "TOR"
-        local headerCols = string.format("%-5s %-15s %s", txtTime, txtTrain, txtTrack)
-        wypiszWiersz(2, headerCols:sub(1, szerokosc), colors.lightGray, colors.gray)
-        startRow = 3
-    end
+    local pociag = bazaDanych[1]
 
-    local maxWierszy = wysokosc - startRow + 1
-    if wysokosc >= 7 then maxWierszy = maxWierszy - 1 end
+    if pociag then
+        local opoznienieNum = tonumber(pociag.opoznienie) or 0
+        local opoznTag = (opoznienieNum > 0) and (isEN and string.format(" [+%dm]", opoznienieNum) or string.format(" [+%dm]", opoznienieNum)) or ""
 
-    for i = 1, maxWierszy do
-        local currRow = startRow + i - 1
-        local wpis = historiaPrzejazdow[i]
+        -- LINIA 2: CZAS + NAZWA POCIĄGU / SYGNATURA
+        local linia2 = string.format("[%s] %s%s", pociag.czas or "--:--", pociag.pociag or "Pociag", opoznTag)
+        local kolL2 = (opoznienieNum > 0) and colors.orange or colors.yellow
+        wypiszWiersz(dev, wMax, hMax, 2, linia2, kolL2, colors.black)
 
-        if wpis then
-            local czasStr = (wpis.czas or "--:--"):sub(1, 5)
-            local opoznienieNum = tonumber(wpis.opoznienie) or 0
-            local opoznStr = (opoznienieNum > 0) and string.format(" +%dm", opoznienieNum) or ""
-
-            local rawRelacja = (wpis.punkt or "Trasa")
-            if wpis.pociag and wpis.pociag ~= "" then
-                rawRelacja = rawRelacja .. "->" .. wpis.pociag
-            end
-            if opoznienieNum > 0 then
-                rawRelacja = rawRelacja .. (jezykAngielski and " [DELAYED]" or " [OPOZNIENIE]")
-            end
-
-            local szerRelacji = szerokosc - 9
-            local relacjaWyswietlana = rawRelacja
-
-            if #rawRelacja > szerRelacji then
-                local rozszerzona = rawRelacja .. "   " .. rawRelacja
-                local startIdx = ((scrollOffset + i * 2) % (#rawRelacja + 3)) + 1
-                relacjaWyswietlana = rozszerzona:sub(startIdx, startIdx + szerRelacji - 1)
-            else
-                relacjaWyswietlana = string.format("%-" .. szerRelacji .. "s", rawRelacja)
-            end
-
-            local statusTor = (i == 1 and (jezykAngielski and "T1 APPROACH" or "T1 WJEZDZA")) or ("T" .. i)
-            if opoznienieNum > 0 then statusTor = "+" .. opoznienieNum .. "m" end
-
-            local wierszTekst = string.format("%-5s %s %-3s", czasStr, relacjaWyswietlana:sub(1, szerRelacji), statusTor:sub(1,3))
-
-            local kolorFru = (opoznienieNum > 0) and colors.orange or ((i == 1) and colors.yellow or colors.white)
-            wypiszWiersz(currRow, wierszTekst:sub(1, szerokosc), kolorFru, colors.black)
-        else
-            wypiszWiersz(currRow, "", colors.gray, colors.black)
+        -- LINIA 3: KIERUNEK / STACJA DOCELOWA (PŁYNNY MARQUEE SCROLL)
+        local relacja = (isEN and "-> TO: " or "-> DO: ") .. (pociag.punkt or "Stacja Docelowa")
+        if #relacja > wMax then
+            local rozszerzony = relacja .. "   " .. relacja
+            local startIdx = (scrollOffset % (#relacja + 3)) + 1
+            relacja = rozszerzony:sub(startIdx, startIdx + wMax - 1)
         end
+        wypiszWiersz(dev, wMax, hMax, 3, relacja, colors.white, colors.black)
+
+        -- LINIA 4: STATUS WJAZDU / OPÓŹNIENIA
+        if hMax >= 4 then
+            local txtStatus = opoznienieNum > 0 and (isEN and " OPOZNIENIE / DELAYED " or " OPOZNIENIE POCIAGU ")
+                              or (isEN and " STATUS: APPROACHING TRACK " or " STATUS: WJEZDZA NA TOR ") .. nrToru
+            wypiszWiersz(dev, wMax, hMax, 4, txtStatus, opoznienieNum > 0 and colors.red or colors.lime, colors.black)
+        end
+
+        -- LINIA 5: SEKTORY PERONOWE
+        if hMax >= 5 then
+            local txtSektor = isEN and " SECTORS: [ A ] [ B ] [ C ]" or " SEKTORY: [ A ] [ B ] [ C ]"
+            wypiszWiersz(dev, wMax, hMax, 5, txtSektor, colors.lightBlue, colors.black)
+        end
+    else
+        -- Brak pociągu na tym torze
+        local txtBrak = isEN and " NO SCHEDULED DEPARTURES" or " BRAK ODJAZDOW NA TORZE"
+        local txtWolny = isEN and (" Track " .. nrToru .. " clear") or (" Tor " .. nrToru .. " wolny")
+        wypiszWiersz(dev, wMax, hMax, 2, txtBrak, colors.lightGray, colors.black)
+        wypiszWiersz(dev, wMax, hMax, 3, txtWolny, colors.gray, colors.black)
+        if hMax >= 4 then wypiszWiersz(dev, wMax, hMax, 4, " Czas / Time: " .. czasGry, colors.yellow, colors.black) end
+        if hMax >= 5 then wypiszWiersz(dev, wMax, hMax, 5, "", colors.black, colors.black) end
     end
 
-    if wysokosc >= 7 then
-        local baner = jezykAngielski 
-            and " *** SAFETY NOTICE: PLEASE STAND CLEAR OF THE PLATFORM EDGE WHILE TRAINS APPROACH *** "
-            or  " *** BEZPIECZENSTWO NA TORACH: ZACHOWAJ OSTROZNOSC PRZY WJEZDZIE POCIAGU *** "
-        local startB = (scrollOffset % (#baner + 1)) + 1
-        local banerWyswietlany = (baner .. baner):sub(startB, startB + szerokosc - 1)
-        wypiszWiersz(wysokosc, banerWyswietlany, colors.orange, colors.black)
-    end
+    odswiezFlapy(dev)
+end
 
-    odswiezFlapyTablicy()
+local function odswiezObuMonitorow()
+    rysujWyswietlaczToru(dispLewy, wLewy, hLewy, config.peron, config.torLewy, bazaLewy)
+    if dispPrawy ~= dispLewy then
+        rysujWyswietlaczToru(dispPrawy, wPrawy, hPrawy, config.peron, config.torPrawy, bazaPrawy)
+    end
 end
 
 --------------------------------------------------------------------------------
---                   KONSOLA I OBSŁUGA REDNET                                 --
+--                   KONSOLA STERUJĄCA I REDNET LOOP                          --
 --------------------------------------------------------------------------------
 term.clear()
 term.setCursorPos(1, 1)
 print("========================================")
-print("  PROFESJONALNA TABLICA ELEKTRONICZNA  ")
+print("  STEROWNIK ELEKTRONICZNY 3x1 (2 TOR)  ")
 print("========================================")
-print(string.format("TTS Audio: %s", tts and "ENGLISH TTS ACTIVE" or (speaker and "AKTYWNY (Gong)" or "Brak")))
-print(string.format("Urzadzenie: %s (%s)", dispName, dispType))
-print(string.format("Rozdzielczosc: %d x %d znakow", szerokosc, wysokosc))
+print(string.format("Stacja: %s | Peron: %s", config.stacja, config.peron))
+print(string.format("LEWY TOR %s:  %s (%dx%d)", config.torLewy, nameLewy, wLewy, hLewy))
+print(string.format("PRAWY TOR %s: %s (%dx%d)", config.torPrawy, namePrawy, wPrawy, hPrawy))
+print(string.format("Audio TTS:   %s", tts and "NATIVE ENGLISH TTS" or "Gong CC"))
+print("Nacisnij [C] aby zmienic konfiguracje monitorow.")
 print("Laczenie z centrala...")
 
 local serverId = rednet.lookup(PROTOKOL, SERWER_HOST)
@@ -228,20 +314,20 @@ while not serverId do
 end
 
 print("Polaczono z centrala #" .. serverId)
-wyczyscTablice()
-odswiezTablicePro()
+wyczyscMonitor(dispLewy, wLewy, hLewy)
+if dispPrawy ~= dispLewy then wyczyscMonitor(dispPrawy, wPrawy, hPrawy) end
+odswiezObuMonitorow()
 
 rednet.send(serverId, {
     typ = "PING",
-    nazwa = "Tablica_3x1_PRO_#" .. MOJE_ID,
+    nazwa = string.format("Tablica3x1_Peron%s", config.peron),
     tryb = "DISPLAY_3X1",
-    status = string.format("%dx%d", szerokosc, wysokosc)
+    status = string.format("L:T%s R:T%s", config.torLewy, config.torPrawy)
 }, PROTOKOL)
 rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
 
 local zegarTimer = os.startTimer(0.4)
 local pingTimer = os.startTimer(2.0)
-local rescanTimer = os.startTimer(5.0)
 
 while true do
     local event, p1, p2, p3 = os.pullEvent()
@@ -253,74 +339,90 @@ while true do
                 trybManualny = false
                 local czas = msg.czas or textutils.formatTime(os.time(), true)
                 local punkt = msg.nazwa or msg.punkt or ("KM_" .. senderId)
-                local pociag = msg.pociag
+                local pociag = msg.pociag or "Pociag"
                 local opoznienie = msg.opoznienie or 0
+                local wykrytyTor = tostring(msg.tor or msg.track or "")
 
-                table.insert(historiaPrzejazdow, 1, { czas = czas, punkt = punkt, pociag = pociag, opoznienie = opoznienie })
-                if #historiaPrzejazdow > 8 then table.remove(historiaPrzejazdow) end
+                -- Przypisanie do Toru Lewego lub Prawego
+                if wykrytyTor == tostring(config.torLewy) or wykrytyTor == "" then
+                    table.insert(bazaLewy, 1, { czas = czas, punkt = punkt, pociag = pociag, opoznienie = opoznienie })
+                    if #bazaLewy > 5 then table.remove(bazaLewy) end
+                end
+
+                if wykrytyTor == tostring(config.torPrawy) or wykrytyTor == "" then
+                    table.insert(bazaPrawy, 1, { czas = czas, punkt = punkt, pociag = pociag, opoznienie = opoznienie })
+                    if #bazaPrawy > 5 then table.remove(bazaPrawy) end
+                end
 
                 if tts then
-                    pcall(function() tts.announceTrain(pociag or "express", "1", "1") end)
+                    pcall(function() tts.announceTrain(pociag, config.peron, (wykrytyTor ~= "" and wykrytyTor or config.torLewy)) end)
                 else
                     zagrajGongDworcowy()
                 end
 
-                print(string.format("[%s] Odnotowano pro 3x1: %s", czas, punkt))
                 scrollOffset = 0
-                odswiezTablicePro()
+                odswiezObuMonitorow()
 
             elseif msg.typ == "BAZA_PRZEJAZDOW" and msg.baza then
                 if not trybManualny then
-                    historiaPrzejazdow = {}
-                    for i = #msg.baza, math.max(1, #msg.baza - 7), -1 do
+                    bazaLewy = {}
+                    bazaPrawy = {}
+                    for i = #msg.baza, 1, -1 do
                         local r = msg.baza[i]
                         local czas = r.czas_gry or (r.timestamp and r.timestamp:sub(12,16)) or "--:--"
                         local punkt = r.posterunek or "Trasa"
-                        local pociag = r.nazwa_pociagu
+                        local pociag = r.nazwa_pociagu or "Pociag"
                         local opoznienie = r.opoznienie or 0
-                        table.insert(historiaPrzejazdow, { czas = czas, punkt = punkt, pociag = pociag, opoznienie = opoznienie })
+                        local torR = tostring(r.tor or "")
+
+                        if #bazaLewy < 5 and (torR == tostring(config.torLewy) or torR == "") then
+                            table.insert(bazaLewy, { czas = czas, punkt = punkt, pociag = pociag, opoznienie = opoznienie })
+                        end
+                        if #bazaPrawy < 5 and (torR == tostring(config.torPrawy) or torR == "") then
+                            table.insert(bazaPrawy, { czas = czas, punkt = punkt, pociag = pociag, opoznienie = opoznienie })
+                        end
                     end
                     scrollOffset = 0
-                    odswiezTablicePro()
+                    odswiezObuMonitorow()
                 end
 
             elseif msg.typ == "ZAPYTANIE_TABLICA" then
                 rednet.send(senderId, {
                     typ = "ODPOWIEDZ_TABLICA",
                     id = MOJE_ID,
-                    szer = szerokosc,
-                    wys = wysokosc,
-                    typDisp = "Tablica_3x1_PRO (" .. dispType .. ")"
+                    szer = wLewy,
+                    wys = hLewy,
+                    typDisp = string.format("Peron %s (Tor %s & Tor %s)", config.peron, config.torLewy, config.torPrawy)
                 }, PROTOKOL)
 
             elseif msg.typ == "USTAW_TEKST_TABLICY" then
                 trybManualny = true
                 local nr = tonumber(msg.linia) or 1
                 local txt = msg.tekst or ""
-                wypiszWiersz(nr, txt, colors.yellow, colors.black)
-                odswiezFlapyTablicy()
-                print(string.format("[MANUAL PRO] Wiersz %d: %s", nr, txt))
+                wypiszWiersz(dispLewy, wLewy, hLewy, nr, txt, colors.yellow, colors.black)
+                if dispPrawy ~= dispLewy then wypiszWiersz(dispPrawy, wPrawy, hPrawy, nr, txt, colors.yellow, colors.black) end
+                odswiezFlapy(dispLewy)
+                if dispPrawy ~= dispLewy then odswiezFlapy(dispPrawy) end
 
             elseif msg.typ == "TEST_TABLICY" then
                 trybManualny = true
-                wyczyscTablice()
-                wypiszWiersz(1, string.format("TEST PRO 3x1 [%dx%d]", szerokosc, wysokosc), colors.yellow, colors.blue)
-                for l = 2, wysokosc do
-                    wypiszWiersz(l, string.format("%d. TEST PRO %s", l - 1, textutils.formatTime(os.time(), true)), colors.white, colors.black)
-                end
-                odswiezFlapyTablicy()
-                if tts then pcall(function() tts.announceTrain("test", "1", "1") end) else zagrajGongDworcowy() end
+                wyczyscMonitor(dispLewy, wLewy, hLewy)
+                if dispPrawy ~= dispLewy then wyczyscMonitor(dispPrawy, wPrawy, hPrawy) end
+                wypiszWiersz(dispLewy, wLewy, hLewy, 1, string.format("TEST PERON %s TOR %s", config.peron, config.torLewy), colors.yellow, colors.blue)
+                if dispPrawy ~= dispLewy then wypiszWiersz(dispPrawy, wPrawy, hPrawy, 1, string.format("TEST PERON %s TOR %s", config.peron, config.torPrawy), colors.yellow, colors.blue) end
+                if tts then pcall(function() tts.announceTrain("test", config.peron, config.torLewy) end) else zagrajGongDworcowy() end
 
             elseif msg.typ == "WYCZYSC_TABLICE" then
                 trybManualny = true
-                wyczyscTablice()
+                wyczyscMonitor(dispLewy, wLewy, hLewy)
+                if dispPrawy ~= dispLewy then wyczyscMonitor(dispPrawy, wPrawy, hPrawy) end
 
             elseif msg.typ == "RESET_TABLICY" then
                 trybManualny = false
-                wyczyscTablice()
+                wyczyscMonitor(dispLewy, wLewy, hLewy)
+                if dispPrawy ~= dispLewy then wyczyscMonitor(dispPrawy, wPrawy, hPrawy) end
                 scrollOffset = 0
-                odswiezTablicePro()
-                if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
+                odswiezObuMonitorow()
 
             elseif msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL" then
                 local tId = msg.targetId
@@ -335,34 +437,29 @@ while true do
             end
         end
 
+    elseif event == "key" and p1 == keys.c then
+        config = kreatorKonfiguracji()
+        dispLewy, nameLewy, wLewy, hLewy = InicjalizujMonitor(config.monLewy)
+        dispPrawy, namePrawy, wPrawy, hPrawy = InicjalizujMonitor(config.monPrawy)
+        wyczyscMonitor(dispLewy, wLewy, hLewy)
+        if dispPrawy ~= dispLewy then wyczyscMonitor(dispPrawy, wPrawy, hPrawy) end
+        odswiezObuMonitorow()
+
     elseif event == "timer" and p1 == pingTimer then
         serverId = pobierzServerId()
         if serverId then
             rednet.send(serverId, {
                 typ = "PING",
-                nazwa = "Tablica_3x1_PRO_#" .. MOJE_ID,
+                nazwa = string.format("Tablica3x1_Peron%s", config.peron),
                 tryb = "DISPLAY_3X1",
-                status = string.format("%dx%d", szerokosc, wysokosc)
+                status = string.format("L:T%s R:T%s", config.torLewy, config.torPrawy)
             }, PROTOKOL)
         end
         pingTimer = os.startTimer(2.0)
 
-    elseif event == "timer" and p1 == rescanTimer then
-        local nDisp, nName, nType = znajdzWyswietlacz3x1()
-        if nDisp ~= display then
-            display = nDisp
-            dispName = nName
-            dispType = nType
-            szerokosc, wysokosc = pobierzWymiary()
-            wyczyscTablice()
-            if not trybManualny then odswiezTablicePro() end
-        end
-        pobierzServerId()
-        rescanTimer = os.startTimer(5.0)
-
     elseif event == "timer" and p1 == zegarTimer then
         scrollOffset = scrollOffset + 1
-        if not trybManualny then odswiezTablicePro() end
+        if not trybManualny then odswiezObuMonitorow() end
         zegarTimer = os.startTimer(0.4)
     end
 end
