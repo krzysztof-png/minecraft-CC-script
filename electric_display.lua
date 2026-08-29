@@ -86,15 +86,15 @@ local function kreatorKonfiguracji()
     if peron == "" then peron = "1" end
 
     print("\nRozmiar Napisow / Skala Tekstu:")
-    print(" [1] Duzy tekst (Skala 1.0) - Bardzo czytelny! [DOMYSLNY]")
-    print(" [2] Maly tekst (Skala 0.5) - Wysoka rozdzielczosc")
-    print(" [3] Bardzo duzy tekst (Skala 1.5)")
+    print(" [1] Drobny / Maly tekst (Skala 0.5) - DUZO TRESCI [DOMYSLNY]")
+    print(" [2] Sredni tekst (Skala 0.75)")
+    print(" [3] Duzy tekst (Skala 1.0)")
     write("Wybór [1-3, domyslnie 1]: ")
     
-    local skala = 1.0
+    local skala = 0.5
     local inputSkala = read()
-    if inputSkala == "2" then skala = 0.5 end
-    if inputSkala == "3" then skala = 1.5 end
+    if inputSkala == "2" then skala = 0.75 end
+    if inputSkala == "3" then skala = 1.0 end
 
     local monitory = wyszukajDostepneMonitory()
 
@@ -159,7 +159,7 @@ end
 --                PODŁĄCZENIE I PRZYGOTOWANIE MONITORÓW                       --
 --------------------------------------------------------------------------------
 local function InicjalizujMonitor(name, skala)
-    skala = skala or config.skalaTekstu or 1.0
+    skala = skala or config.skalaTekstu or 0.5
 
     if name == "terminal" or not name then
         return term.native(), "terminal", 26, 6
