@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
---    DWUSTRONNY WYŚWIETLACZ 3x1 (2 MONITORY: LEWY TOR + PRAWY TOR)             --
+--    DWUSTRONNY WYŚWIETLACZ 3x1 (DUŻE NAPISY / LARGE TEXT SCALE 1.0)          --
 --                       electric_display.lua                                 --
 --------------------------------------------------------------------------------
 local CONFIG_FILE = "electric_config.json"
@@ -85,6 +85,17 @@ local function kreatorKonfiguracji()
     local peron = read()
     if peron == "" then peron = "1" end
 
+    print("\nRozmiar Napisow / Skala Tekstu:")
+    print(" [1] Duzy tekst (Skala 1.0) - Bardzo czytelny! [DOMYSLNY]")
+    print(" [2] Maly tekst (Skala 0.5) - Wysoka rozdzielczosc")
+    print(" [3] Bardzo duzy tekst (Skala 1.5)")
+    write("Wybór [1-3, domyslnie 1]: ")
+    
+    local skala = 1.0
+    local inputSkala = read()
+    if inputSkala == "2" then skala = 0.5 end
+    if inputSkala == "3" then skala = 1.5 end
+
     local monitory = wyszukajDostepneMonitory()
 
     print("\n--- MONITORY W SIECI ---")
@@ -129,6 +140,7 @@ local function kreatorKonfiguracji()
     local cfg = {
         stacja = stacja,
         peron = peron,
+        skalaTekstu = skala,
         torLewy = torLewy,
         monLewy = monLewyName,
         torPrawy = torPrawy,
@@ -146,14 +158,16 @@ end
 --------------------------------------------------------------------------------
 --                PODŁĄCZENIE I PRZYGOTOWANIE MONITORÓW                       --
 --------------------------------------------------------------------------------
-local function InicjalizujMonitor(name)
+local function InicjalizujMonitor(name, skala)
+    skala = skala or config.skalaTekstu or 1.0
+
     if name == "terminal" or not name then
         return term.native(), "terminal", 26, 6
     end
     local dev = peripheral.wrap(name)
     if dev then
-        pcall(function() dev.setTextScale(0.5) end)
-        local w, h = 26, 6
+        pcall(function() dev.setTextScale(skala) end)
+        local w, h = 13, 5
         if dev.getSize then
             local ok, dw, dh = pcall(dev.getSize)
             if ok and dw and dh and dw > 0 then w, h = dw, dh end
@@ -207,7 +221,7 @@ local function wyczyscMonitor(dev, wMax, hMax)
 end
 
 --------------------------------------------------------------------------------
---        CZYTELNE I PROFESJONALNE RENDEROWANIE TORU (1 TOR NA EKRAN)          --
+--        DUŻE NAPISY (LARGE TEXT 1.0) - ADAPTACYJNE RENDEROWANIE TORU        --
 --------------------------------------------------------------------------------
 local bazaLewy = {}
 local bazaPrawy = {}
@@ -220,10 +234,13 @@ local function rysujWyswietlaczToru(dev, wMax, hMax, nrPeronu, nrToru, bazaDanyc
     local czasGry = textutils.formatTime(os.time(), true)
     local isEN = (math.floor(scrollOffset / 16) % 2 == 1)
 
-    -- LINIA 1: NAGŁÓWEK TORU (Niebieskie tło, Złoty tekst)
-    local txtP = isEN and "PLATFORM" or "PERON"
-    local txtT = isEN and "TRACK" or "TOR"
-    local naglowek = string.format(" %s %s | %s %s | %s ", txtP, nrPeronu, txtT, nrToru, config.stacja:upper())
+    -- LINIA 1: NAGŁÓWEK TORU (DUŻE DUŻE LITERY)
+    local txtP = isEN and "P" or "PERON"
+    local txtT = isEN and "T" or "TOR"
+    local naglowek = string.format(" %s %s %s %s ", txtP, nrPeronu, txtT, nrToru)
+    if wMax >= 18 then
+        naglowek = string.format(" PERON %s | TOR %s ", nrPeronu, nrToru)
+    end
     local pad = math.max(0, math.floor((wMax - #naglowek) / 2))
     local pelnyNaglowek = string.rep(" ", pad) .. naglowek .. string.rep(" ", wMax - #naglowek - pad)
     wypiszWiersz(dev, wMax, hMax, 1, pelnyNaglowek:sub(1, wMax), colors.yellow, colors.blue)
@@ -232,41 +249,42 @@ local function rysujWyswietlaczToru(dev, wMax, hMax, nrPeronu, nrToru, bazaDanyc
 
     if pociag then
         local opoznienieNum = tonumber(pociag.opoznienie) or 0
-        local opoznTag = (opoznienieNum > 0) and (isEN and string.format(" [+%dm]", opoznienieNum) or string.format(" [+%dm]", opoznienieNum)) or ""
+        local opoznTag = (opoznienieNum > 0) and string.format(" +%dm", opoznienieNum) or ""
 
         -- LINIA 2: CZAS + NAZWA POCIĄGU / SYGNATURA
-        local linia2 = string.format("[%s] %s%s", pociag.czas or "--:--", pociag.pociag or "Pociag", opoznTag)
+        local linia2 = string.format("%s %s%s", pociag.czas or "--:--", pociag.pociag or "Pociag", opoznTag)
         local kolL2 = (opoznienieNum > 0) and colors.orange or colors.yellow
-        wypiszWiersz(dev, wMax, hMax, 2, linia2, kolL2, colors.black)
+        wypiszWiersz(dev, wMax, hMax, 2, linia2:sub(1, wMax), kolL2, colors.black)
 
         -- LINIA 3: KIERUNEK / STACJA DOCELOWA (PŁYNNY MARQUEE SCROLL)
-        local relacja = (isEN and "-> TO: " or "-> DO: ") .. (pociag.punkt or "Stacja Docelowa")
+        local relacja = "-> " .. (pociag.punkt or "Stacja Docelowa")
         if #relacja > wMax then
             local rozszerzony = relacja .. "   " .. relacja
             local startIdx = (scrollOffset % (#relacja + 3)) + 1
             relacja = rozszerzony:sub(startIdx, startIdx + wMax - 1)
         end
-        wypiszWiersz(dev, wMax, hMax, 3, relacja, colors.white, colors.black)
+        wypiszWiersz(dev, wMax, hMax, 3, relacja:sub(1, wMax), colors.white, colors.black)
 
         -- LINIA 4: STATUS WJAZDU / OPÓŹNIENIA
         if hMax >= 4 then
-            local txtStatus = opoznienieNum > 0 and (isEN and " OPOZNIENIE / DELAYED " or " OPOZNIENIE POCIAGU ")
-                              or (isEN and " STATUS: APPROACHING TRACK " or " STATUS: WJEZDZA NA TOR ") .. nrToru
-            wypiszWiersz(dev, wMax, hMax, 4, txtStatus, opoznienieNum > 0 and colors.red or colors.lime, colors.black)
+            local txtStatus = opoznienieNum > 0 and (isEN and "DELAYED" or "OPOZNIENIE")
+                              or (isEN and "APPROACHING" or "WJEZDZA")
+            wypiszWiersz(dev, wMax, hMax, 4, " " .. txtStatus, opoznienieNum > 0 and colors.red or colors.lime, colors.black)
         end
 
         -- LINIA 5: SEKTORY PERONOWE
         if hMax >= 5 then
-            local txtSektor = isEN and " SECTORS: [ A ] [ B ] [ C ]" or " SEKTORY: [ A ] [ B ] [ C ]"
-            wypiszWiersz(dev, wMax, hMax, 5, txtSektor, colors.lightBlue, colors.black)
+            local txtSektor = "SEK: A B C"
+            if wMax >= 18 then txtSektor = "SEKTORY: [A] [B] [C]" end
+            wypiszWiersz(dev, wMax, hMax, 5, " " .. txtSektor, colors.lightBlue, colors.black)
         end
     else
         -- Brak pociągu na tym torze
-        local txtBrak = isEN and " NO SCHEDULED DEPARTURES" or " BRAK ODJAZDOW NA TORZE"
-        local txtWolny = isEN and (" Track " .. nrToru .. " clear") or (" Tor " .. nrToru .. " wolny")
-        wypiszWiersz(dev, wMax, hMax, 2, txtBrak, colors.lightGray, colors.black)
-        wypiszWiersz(dev, wMax, hMax, 3, txtWolny, colors.gray, colors.black)
-        if hMax >= 4 then wypiszWiersz(dev, wMax, hMax, 4, " Czas / Time: " .. czasGry, colors.yellow, colors.black) end
+        local txtBrak = isEN and "NO TRAINS" or "BRAK ODJAZDU"
+        local txtWolny = isEN and ("Track " .. nrToru .. " OK") or ("Tor " .. nrToru .. " wolny")
+        wypiszWiersz(dev, wMax, hMax, 2, txtBrak:sub(1, wMax), colors.lightGray, colors.black)
+        wypiszWiersz(dev, wMax, hMax, 3, txtWolny:sub(1, wMax), colors.gray, colors.black)
+        if hMax >= 4 then wypiszWiersz(dev, wMax, hMax, 4, " " .. czasGry, colors.yellow, colors.black) end
         if hMax >= 5 then wypiszWiersz(dev, wMax, hMax, 5, "", colors.black, colors.black) end
     end
 
@@ -286,13 +304,13 @@ end
 term.clear()
 term.setCursorPos(1, 1)
 print("========================================")
-print("  STEROWNIK ELEKTRONICZNY 3x1 (2 TOR)  ")
+print("  STEROWNIK ELEKTRONICZNA 3x1 (DUZE)    ")
 print("========================================")
-print(string.format("Stacja: %s | Peron: %s", config.stacja, config.peron))
+print(string.format("Stacja: %s | Peron: %s | Skala: %s", config.stacja, config.peron, tostring(config.skalaTekstu or 1.0)))
 print(string.format("LEWY TOR %s:  %s (%dx%d)", config.torLewy, nameLewy, wLewy, hLewy))
 print(string.format("PRAWY TOR %s: %s (%dx%d)", config.torPrawy, namePrawy, wPrawy, hPrawy))
 print(string.format("Audio TTS:   %s", tts and "NATIVE ENGLISH TTS" or "Gong CC"))
-print("Nacisnij [C] aby zmienic konfiguracje monitorow.")
+print("Nacisnij [C] aby zmienic konfiguracje / skale napisow.")
 print("Laczenie z centrala...")
 
 local serverId = rednet.lookup(PROTOKOL, SERWER_HOST)
@@ -343,14 +361,13 @@ while true do
                 local opoznienie = msg.opoznienie or 0
                 local wykrytyTor = tostring(msg.tor or msg.track or "")
 
-                -- Przypisanie do Toru Lewego lub Prawego
                 if wykrytyTor == tostring(config.torLewy) or wykrytyTor == "" then
                     table.insert(bazaLewy, 1, { czas = czas, punkt = punkt, pociag = pociag, opoznienie = opoznienie })
                     if #bazaLewy > 5 then table.remove(bazaLewy) end
                 end
 
                 if wykrytyTor == tostring(config.torPrawy) or wykrytyTor == "" then
-                    table.insert(bazaPrawy, 1, { czas = czas, punkt = punkt, pociag = pociag, opoznienie = opoznienie })
+                    table.insert(bazaPrawy, 1, { czas = czas, punkt = pociag or punkt, pociag = pociag, opoznienie = opoznienie })
                     if #bazaPrawy > 5 then table.remove(bazaPrawy) end
                 end
 
@@ -439,8 +456,8 @@ while true do
 
     elseif event == "key" and p1 == keys.c then
         config = kreatorKonfiguracji()
-        dispLewy, nameLewy, wLewy, hLewy = InicjalizujMonitor(config.monLewy)
-        dispPrawy, namePrawy, wPrawy, hPrawy = InicjalizujMonitor(config.monPrawy)
+        dispLewy, nameLewy, wLewy, hLewy = InicjalizujMonitor(config.monLewy, config.skalaTekstu)
+        dispPrawy, namePrawy, wPrawy, hPrawy = InicjalizujMonitor(config.monPrawy, config.skalaTekstu)
         wyczyscMonitor(dispLewy, wLewy, hLewy)
         if dispPrawy ~= dispLewy then wyczyscMonitor(dispPrawy, wPrawy, hPrawy) end
         odswiezObuMonitorow()
