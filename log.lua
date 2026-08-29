@@ -223,13 +223,13 @@ local function odswiezEkran(serverId)
 
     -- Okno dialogowe potwierdzenia Rebootu
     if trybRebootConfirm then
-        term.setCursorPos(1, 8)
+        term.setCursorPos(1, 7)
         term.setBackgroundColor(colors.red)
         term.setTextColor(colors.white)
         print("==========================")
         print("  RESTART CALOSCI SIECI   ")
         print("  SERWER + WSZYSTKIE KL   ")
-        print("  Potwierdz [T]ak / [N]ie ")
+        print("   [T] TAK     [N] NIE    ")
         print("==========================")
         term.setBackgroundColor(colors.black)
     end
@@ -332,7 +332,7 @@ while true do
                 end
                 sleep(0.5)
                 os.reboot()
-            else
+            elseif p1 == keys.n or p1 == keys.backspace or p1 == keys.delete then
                 trybRebootConfirm = false
                 odswiezEkran(serverId)
             end
@@ -412,7 +412,7 @@ while true do
             end
         end
 
-    -- 4. Obsługa znaku wpisywanego (dla pewności potwierdzenia T/N)
+    -- 4. Obsługa znaku wpisywanego (dla potwierdzenia T/N)
     elseif event == "char" and trybRebootConfirm then
         local ch = p1:lower()
         if ch == "t" or ch == "y" then
@@ -432,11 +432,35 @@ while true do
 
     -- 5. Obsługa dotykowa (kliknięcia na Pocket PC)
     elseif event == "mouse_click" then
+        local button, x, y = p1, p2, p3
+
         if trybRebootConfirm then
-            trybRebootConfirm = false
-            odswiezEkran(serverId)
+            -- Modal Reboot znajduje się w liniach 7-11
+            if y >= 7 and y <= 11 then
+                -- Linia 10: "   [T] TAK     [N] NIE    "
+                if x >= 3 and x <= 11 then
+                    -- Przycisk TAK
+                    trybRebootConfirm = false
+                    dodajWpis("Wysylanie REBOOT...", colors.red)
+                    odswiezEkran(serverId)
+                    rednet.broadcast({ typ = "REBOOT_ALL" }, PROTOKOL)
+                    if serverId then
+                        rednet.send(serverId, { typ = "REBOOT_ALL" }, PROTOKOL)
+                    end
+                    sleep(0.5)
+                    os.reboot()
+                elseif x >= 13 and x <= 22 then
+                    -- Przycisk NIE
+                    trybRebootConfirm = false
+                    odswiezEkran(serverId)
+                end
+            else
+                -- Kliknięcie poza okienkiem anuluje reboot
+                trybRebootConfirm = false
+                odswiezEkran(serverId)
+            end
         else
-            local button, x, y = p1, p2, p3
+            -- 1. Kliknięcie na pasek zakładek (Góra: y == 1)
             if y == 1 then
                 if x <= 7 then
                     aktywnaKarta = 1
@@ -450,6 +474,48 @@ while true do
                     rednet.broadcast({ typ = "ZAPYTANIE_TABLICA" }, PROTOKOL)
                 end
                 odswiezEkran(serverId)
+
+            -- 2. Kliknięcie na dolny pasek (Dół: y == 20)
+            elseif y == 20 then
+                -- [1/2/3/4] | [X]Reboot | [Q]
+                if x >= 12 and x <= 20 then
+                    -- Przycisk [X]Reboot
+                    trybRebootConfirm = true
+                    odswiezEkran(serverId)
+                elseif x >= 23 then
+                    -- Przycisk [Q] Wyjście
+                    term.clear()
+                    term.setCursorPos(1, 1)
+                    print("Wylaczono mobilny monitor.")
+                    break
+                end
+
+            -- 3. Dotykowe akcje na Karcie 4 (Tablica)
+            elseif aktywnaKarta == 4 then
+                if y == 4 then -- [S] Skanuj
+                    dodajWpis("Skanowanie tablic w sieci...", colors.yellow)
+                    rednet.broadcast({ typ = "ZAPYTANIE_TABLICA" }, PROTOKOL)
+                    if serverId then rednet.send(serverId, { typ = "ZAPYTANIE_TABLICA" }, PROTOKOL) end
+                    odswiezEkran(serverId)
+                elseif y == 5 then -- [E] Edycja
+                    edytujWierszModal(serverId)
+                    odswiezEkran(serverId)
+                elseif y == 6 then -- [T] Test
+                    dodajWpis("Wyslano wzorzec testowy.", colors.cyan)
+                    rednet.broadcast({ typ = "TEST_TABLICY" }, PROTOKOL)
+                    if serverId then rednet.send(serverId, { typ = "TEST_TABLICY" }, PROTOKOL) end
+                    odswiezEkran(serverId)
+                elseif y == 7 then -- [C] Wyczysc
+                    dodajWpis("Wyczyszczono tablice.", colors.orange)
+                    rednet.broadcast({ typ = "WYCZYSC_TABLICE" }, PROTOKOL)
+                    if serverId then rednet.send(serverId, { typ = "WYCZYSC_TABLICE" }, PROTOKOL) end
+                    odswiezEkran(serverId)
+                elseif y == 8 then -- [R] Reset
+                    dodajWpis("Przywrocono tryb ODJAZDY.", colors.green)
+                    rednet.broadcast({ typ = "RESET_TABLICY" }, PROTOKOL)
+                    if serverId then rednet.send(serverId, { typ = "RESET_TABLICY" }, PROTOKOL) end
+                    odswiezEkran(serverId)
+                end
             end
         end
     end
