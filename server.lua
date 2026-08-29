@@ -306,10 +306,10 @@ while true do
             elseif msg.typ == "ZAPYTANIE_TABLICA" or msg.typ == "USTAW_TEKST_TABLICY" or msg.typ == "TEST_TABLICY" or msg.typ == "WYCZYSC_TABLICE" or msg.typ == "RESET_TABLICY" then
                 rednet.broadcast(msg, PROTOKOL)
 
-            elseif msg.typ == "REBOOT_ALL" or msg.typ == "REBOOT" then
-                dodajLog("Zdalny REBOOT sieci od #" .. senderId, "ALARM")
+            elseif msg.typ == "REBOOT_ALL" or (msg.typ == "REBOOT" and (not msg.targetId and not msg.targetTryb or msg.targetId == os.getComputerID() or msg.targetTryb == "SERVER")) then
+                dodajLog("Zdalny REBOOT serwera od #" .. senderId, "ALARM")
                 odswiezInterfejs()
-                rednet.broadcast({ typ = "REBOOT" }, PROTOKOL)
+                rednet.broadcast(msg, PROTOKOL)
                 sleep(0.5)
                 os.reboot()
             end

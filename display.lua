@@ -268,9 +268,15 @@ while true do
                 if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
 
             elseif msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL" then
-                print("Received remote REBOOT command!")
-                sleep(0.5)
-                os.reboot()
+                local tId = msg.targetId
+                local tTryb = msg.targetTryb
+                local myId = os.getComputerID()
+
+                if not tId and not tTryb or (tId and tId == myId) or (tTryb and (tTryb == "DISPLAY" or tTryb == "PERON" or tTryb == "DISPLAY_3X1")) then
+                    print("Received remote REBOOT command!")
+                    sleep(0.5)
+                    os.reboot()
+                end
             end
         end
 

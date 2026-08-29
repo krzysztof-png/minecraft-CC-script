@@ -395,16 +395,22 @@ while true do
             rysujEkran(serverId, "Redstone detector cleared", #znanePeryferia)
         end
 
-    -- 5. Remote Rednet command handler (REBOOT)
+    -- 5. Remote Rednet command handler (REBOOT / REBOOT_ALL)
     elseif event == "rednet_message" and p3 == PROTOKOL then
         local senderId, msg = p1, p2
         if type(msg) == "table" and (msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL") then
-            term.clear()
-            term.setCursorPos(1, 1)
-            print("Received remote REBOOT command from #" .. tostring(senderId))
-            print("Rebooting computer...")
-            sleep(0.5)
-            os.reboot()
+            local tId = msg.targetId
+            local tTryb = msg.targetTryb
+            local myId = os.getComputerID()
+
+            if not tId and not tTryb or (tId and tId == myId) or (tTryb and (tTryb == "CLIENT" or config.tryb:find(tTryb))) then
+                term.clear()
+                term.setCursorPos(1, 1)
+                print("Received remote REBOOT command from #" .. tostring(senderId))
+                print("Rebooting computer...")
+                sleep(0.5)
+                os.reboot()
+            end
         end
     end
 end

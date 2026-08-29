@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
---            MOBILNY MONITOR KOLEJOWY (POCKET PC - 3 KARTY + BAZA)           --
+--    MOBILNY TERMINAL KOLEJOWY (POCKET PC - 5 KART + ZDALNE ZARZĄDZANIE)     --
 --------------------------------------------------------------------------------
 local PROTOKOL     = "kolej_net"
 local SERWER_HOST  = "centrala_glowna"
@@ -11,13 +11,17 @@ if not modem then
 end
 rednet.open(peripheral.getName(modem))
 
-local aktywnaKarta = 1 -- 1: Węzły, 2: Logi na żywo, 3: Baza przejazdów, 4: Tablica Create
+local aktywnaKarta = 1 -- 1: Węzły, 2: Logi, 3: Baza, 4: Tablice, 5: Zarządzanie Reboot
 local klienci = {}
 local logi = {}
 local bazaPrzejazdow = {}
 local wykryteTablice = {} -- { [id] = { szer, wys, typDisp } }
 local MAX_LOGOW = 16
+
+-- Stan okienek potwierdzenia
 local trybRebootConfirm = false
+local rebootTargetTyp = "ALL" -- "ALL", "SERVER", "DISPLAY", "CLIENT", "SINGLE"
+local rebootSingleId = nil
 
 local function dodajWpis(tekst, kolor)
     table.insert(logi, 1, { tekst = tekst, kolor = kolor or colors.white })
@@ -26,7 +30,7 @@ local function dodajWpis(tekst, kolor)
     end
 end
 
--- Rysowanie paska zakładek (góra ekranu: 26 znaków szerokości)
+-- Rysowanie paska zakładek (5 kart na szerokość 26 znaków Pocket PC)
 local function rysujPasekKart()
     term.setCursorPos(1, 1)
     
@@ -34,33 +38,33 @@ local function rysujPasekKart()
     if aktywnaKarta == 1 then
         term.setBackgroundColor(colors.blue)
         term.setTextColor(colors.white)
-        term.write("[1]WEZLY")
+        term.write("[1]WEZ")
     else
         term.setBackgroundColor(colors.gray)
         term.setTextColor(colors.lightGray)
-        term.write("1:Wezly ")
+        term.write("1:Wez ")
     end
 
     -- Karta 2: Logi
     if aktywnaKarta == 2 then
         term.setBackgroundColor(colors.blue)
         term.setTextColor(colors.white)
-        term.write("[2]LOGI")
+        term.write("[2]LOG")
     else
         term.setBackgroundColor(colors.gray)
         term.setTextColor(colors.lightGray)
-        term.write("2:Logi ")
+        term.write("2:Log ")
     end
 
     -- Karta 3: Baza
     if aktywnaKarta == 3 then
         term.setBackgroundColor(colors.blue)
         term.setTextColor(colors.white)
-        term.write("[3]BAZA")
+        term.write("[3]BAZ")
     else
         term.setBackgroundColor(colors.gray)
         term.setTextColor(colors.lightGray)
-        term.write("3:Baza ")
+        term.write("3:Baz ")
     end
 
     -- Karta 4: Tablica
@@ -71,10 +75,49 @@ local function rysujPasekKart()
     else
         term.setBackgroundColor(colors.gray)
         term.setTextColor(colors.lightGray)
-        term.write("4:Tab")
+        term.write("4:Tab ")
+    end
+
+    -- Karta 5: Akcje / Reboot Manager
+    if aktywnaKarta == 5 then
+        term.setBackgroundColor(colors.red)
+        term.setTextColor(colors.white)
+        term.write("[5]CMD")
+    else
+        term.setBackgroundColor(colors.gray)
+        term.setTextColor(colors.lightGray)
+        term.write("5:Cmd")
     end
 
     term.setBackgroundColor(colors.black)
+end
+
+-- Formularz wprowadzania ID dla pojedynczego restartu
+local function restartWybranegoIDModal(serverId)
+    term.clear()
+    term.setCursorPos(1, 1)
+    term.setBackgroundColor(colors.red)
+    term.setTextColor(colors.white)
+    print("====== REBOOT DEDYKOWANY ======")
+    term.setBackgroundColor(colors.black)
+
+    print("\nWpisz numer ID komputera:")
+    term.setTextColor(colors.yellow)
+    write("> #")
+    term.setTextColor(colors.white)
+    local inputStr = read()
+    local targetId = tonumber(inputStr)
+
+    if not targetId or targetId < 0 then
+        term.setTextColor(colors.red)
+        print("\n[!] Nieprawidlowy numer ID!")
+        sleep(1)
+        return
+    end
+
+    rebootTargetTyp = "SINGLE"
+    rebootSingleId = targetId
+    trybRebootConfirm = true
 end
 
 -- Modalna edycja wiersza tablicy
@@ -115,6 +158,40 @@ local function edytujWierszModal(serverId)
     term.setTextColor(colors.green)
     print("\n[OK] Wyslano tekst do tablicy!")
     sleep(1.2)
+end
+
+-- Wykonanie polecenia zdalnego restartu w zależności od celu
+local function wykonajReboot(serverId)
+    trybRebootConfirm = false
+
+    if rebootTargetTyp == "ALL" then
+        dodajWpis("Wysylanie REBOOT CALEJ SIECI", colors.red)
+        rednet.broadcast({ typ = "REBOOT_ALL" }, PROTOKOL)
+        if serverId then rednet.send(serverId, { typ = "REBOOT_ALL" }, PROTOKOL) end
+        sleep(0.5)
+        os.reboot()
+
+    elseif rebootTargetTyp == "SERVER" then
+        dodajWpis("Wysylanie REBOOT SERWERA...", colors.red)
+        if serverId then rednet.send(serverId, { typ = "REBOOT", targetId = serverId }, PROTOKOL) end
+
+    elseif rebootTargetTyp == "DISPLAY" then
+        dodajWpis("Wysylanie REBOOT TABLIC...", colors.orange)
+        rednet.broadcast({ typ = "REBOOT", targetTryb = "DISPLAY" }, PROTOKOL)
+
+    elseif rebootTargetTyp == "CLIENT" then
+        dodajWpis("Wysylanie REBOOT POSTERUNKOW", colors.orange)
+        rednet.broadcast({ typ = "REBOOT", targetTryb = "CLIENT" }, PROTOKOL)
+
+    elseif rebootTargetTyp == "SINGLE" and rebootSingleId then
+        dodajWpis(string.format("Wysylanie REBOOT do #%d...", rebootSingleId), colors.yellow)
+        rednet.send(rebootSingleId, { typ = "REBOOT", targetId = rebootSingleId }, PROTOKOL)
+        rednet.broadcast({ typ = "REBOOT", targetId = rebootSingleId }, PROTOKOL)
+        if rebootSingleId == os.getComputerID() then
+            sleep(0.5)
+            os.reboot()
+        end
+    end
 end
 
 -- Rysowanie zawartości ekranu
@@ -219,6 +296,21 @@ local function odswiezEkran(serverId)
             print(" Brak informacji o tablicy.")
             print(" Wcisnij [S] aby skanowac.")
         end
+
+    -- ================= KARTA 5: REBOOT MANAGER ==============
+    elseif aktywnaKarta == 5 then
+        term.setTextColor(colors.red)
+        print(" === ZDARZENIA I REBOOT ===")
+        term.setTextColor(colors.white)
+        print(" [1] Reboot CALEJ sieci")
+        print(" [2] Reboot SERWERA")
+        print(" [3] Reboot TABLIC")
+        print(" [4] Reboot POSTERUNKOW")
+        print(" [5] Reboot WYBRANEGO ID")
+        print(" [6] Wyslij ALARM testowy")
+        print(string.rep("-", 26))
+        term.setTextColor(colors.lightGray)
+        print(" Wybierz opcje [1-6]")
     end
 
     -- Okno dialogowe potwierdzenia Rebootu
@@ -227,8 +319,10 @@ local function odswiezEkran(serverId)
         term.setBackgroundColor(colors.red)
         term.setTextColor(colors.white)
         print("==========================")
-        print("  RESTART CALOSCI SIECI   ")
-        print("  SERWER + WSZYSTKIE KL   ")
+        local celTxt = "   RESTART: " .. rebootTargetTyp .. " "
+        if rebootTargetTyp == "SINGLE" then celTxt = string.format("   RESTART ID #%d   ", rebootSingleId or 0) end
+        print(celTxt)
+        print("  Potwierdzasz operacje?  ")
         print("   [T] TAK     [N] NIE    ")
         print("==========================")
         term.setBackgroundColor(colors.black)
@@ -239,7 +333,7 @@ local function odswiezEkran(serverId)
     term.setBackgroundColor(colors.gray)
     term.setTextColor(colors.white)
     term.clearLine()
-    term.write("[1/2/3/4] | [X]Reboot | [Q]")
+    term.write("[1-5]Kart | [X]Reboot | [Q]")
     term.setBackgroundColor(colors.black)
 end
 
@@ -306,11 +400,23 @@ while true do
                 odswiezEkran(serverId)
 
             elseif msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL" then
-                term.clear()
-                term.setCursorPos(1, 1)
-                print("Zdalny restart komputera...")
-                sleep(0.5)
-                os.reboot()
+                local targetId = msg.targetId
+                local targetTryb = msg.targetTryb
+                local myId = os.getComputerID()
+
+                if not targetId and not targetTryb then
+                    term.clear()
+                    term.setCursorPos(1, 1)
+                    print("Zdalny restart komputera...")
+                    sleep(0.5)
+                    os.reboot()
+                elseif targetId and targetId == myId then
+                    term.clear()
+                    term.setCursorPos(1, 1)
+                    print("Dedykowany restart komputera #" .. myId)
+                    sleep(0.5)
+                    os.reboot()
+                end
             end
         end
 
@@ -323,37 +429,64 @@ while true do
     elseif event == "key" then
         if trybRebootConfirm then
             if p1 == keys.t or p1 == keys.y then
-                trybRebootConfirm = false
-                dodajWpis("Wysylanie REBOOT...", colors.red)
+                wykonajReboot(serverId)
                 odswiezEkran(serverId)
-                rednet.broadcast({ typ = "REBOOT_ALL" }, PROTOKOL)
-                if serverId then
-                    rednet.send(serverId, { typ = "REBOOT_ALL" }, PROTOKOL)
-                end
-                sleep(0.5)
-                os.reboot()
             elseif p1 == keys.n or p1 == keys.backspace or p1 == keys.delete then
                 trybRebootConfirm = false
                 odswiezEkran(serverId)
             end
         else
             if p1 == keys.one or p1 == keys.numPad1 then
-                aktywnaKarta = 1
+                if aktywnaKarta == 5 then
+                    rebootTargetTyp = "ALL"
+                    trybRebootConfirm = true
+                else
+                    aktywnaKarta = 1
+                end
                 odswiezEkran(serverId)
             elseif p1 == keys.two or p1 == keys.numPad2 then
-                aktywnaKarta = 2
+                if aktywnaKarta == 5 then
+                    rebootTargetTyp = "SERVER"
+                    trybRebootConfirm = true
+                else
+                    aktywnaKarta = 2
+                end
                 odswiezEkran(serverId)
             elseif p1 == keys.three or p1 == keys.numPad3 then
-                aktywnaKarta = 3
-                if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
+                if aktywnaKarta == 5 then
+                    rebootTargetTyp = "DISPLAY"
+                    trybRebootConfirm = true
+                else
+                    aktywnaKarta = 3
+                    if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
+                end
                 odswiezEkran(serverId)
             elseif p1 == keys.four or p1 == keys.numPad4 then
-                aktywnaKarta = 4
-                rednet.broadcast({ typ = "ZAPYTANIE_TABLICA" }, PROTOKOL)
-                if serverId then rednet.send(serverId, { typ = "ZAPYTANIE_TABLICA" }, PROTOKOL) end
+                if aktywnaKarta == 5 then
+                    rebootTargetTyp = "CLIENT"
+                    trybRebootConfirm = true
+                else
+                    aktywnaKarta = 4
+                    rednet.broadcast({ typ = "ZAPYTANIE_TABLICA" }, PROTOKOL)
+                    if serverId then rednet.send(serverId, { typ = "ZAPYTANIE_TABLICA" }, PROTOKOL) end
+                end
+                odswiezEkran(serverId)
+            elseif p1 == keys.five or p1 == keys.numPad5 then
+                if aktywnaKarta == 5 then
+                    restartWybranegoIDModal(serverId)
+                else
+                    aktywnaKarta = 5
+                end
+                odswiezEkran(serverId)
+            elseif p1 == keys.six or p1 == keys.numPad6 then
+                if aktywnaKarta == 5 then
+                    dodajWpis("Wyslano sygnal ALARM!", colors.red)
+                    rednet.broadcast({ typ = "ALARM", nazwa = "Terminal_Pocket", powod = "Sygnal Alarmowy z Pocket PC" }, PROTOKOL)
+                    if serverId then rednet.send(serverId, { typ = "ALARM", nazwa = "Terminal_Pocket", powod = "Sygnal Alarmowy" }, PROTOKOL) end
+                end
                 odswiezEkran(serverId)
             elseif p1 == keys.tab then
-                aktywnaKarta = (aktywnaKarta % 4) + 1
+                aktywnaKarta = (aktywnaKarta % 5) + 1
                 if aktywnaKarta == 3 and serverId then
                     rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
                 elseif aktywnaKarta == 4 then
@@ -393,6 +526,7 @@ while true do
                     if serverId then rednet.send(serverId, { typ = "RESET_TABLICY" }, PROTOKOL) end
                     odswiezEkran(serverId)
                 elseif p1 == keys.x then
+                    rebootTargetTyp = "ALL"
                     trybRebootConfirm = true
                     odswiezEkran(serverId)
                 elseif p1 == keys.q then
@@ -402,6 +536,7 @@ while true do
                     break
                 end
             elseif p1 == keys.x then
+                rebootTargetTyp = "ALL"
                 trybRebootConfirm = true
                 odswiezEkran(serverId)
             elseif p1 == keys.q then
@@ -416,15 +551,8 @@ while true do
     elseif event == "char" and trybRebootConfirm then
         local ch = p1:lower()
         if ch == "t" or ch == "y" then
-            trybRebootConfirm = false
-            dodajWpis("Wysylanie REBOOT...", colors.red)
+            wykonajReboot(serverId)
             odswiezEkran(serverId)
-            rednet.broadcast({ typ = "REBOOT_ALL" }, PROTOKOL)
-            if serverId then
-                rednet.send(serverId, { typ = "REBOOT_ALL" }, PROTOKOL)
-            end
-            sleep(0.5)
-            os.reboot()
         else
             trybRebootConfirm = false
             odswiezEkran(serverId)
@@ -435,55 +563,43 @@ while true do
         local button, x, y = p1, p2, p3
 
         if trybRebootConfirm then
-            -- Modal Reboot znajduje się w liniach 7-11
             if y >= 7 and y <= 11 then
-                -- Linia 10: "   [T] TAK     [N] NIE    "
                 if x >= 3 and x <= 11 then
-                    -- Przycisk TAK
-                    trybRebootConfirm = false
-                    dodajWpis("Wysylanie REBOOT...", colors.red)
+                    wykonajReboot(serverId)
                     odswiezEkran(serverId)
-                    rednet.broadcast({ typ = "REBOOT_ALL" }, PROTOKOL)
-                    if serverId then
-                        rednet.send(serverId, { typ = "REBOOT_ALL" }, PROTOKOL)
-                    end
-                    sleep(0.5)
-                    os.reboot()
                 elseif x >= 13 and x <= 22 then
-                    -- Przycisk NIE
                     trybRebootConfirm = false
                     odswiezEkran(serverId)
                 end
             else
-                -- Kliknięcie poza okienkiem anuluje reboot
                 trybRebootConfirm = false
                 odswiezEkran(serverId)
             end
         else
             -- 1. Kliknięcie na pasek zakładek (Góra: y == 1)
             if y == 1 then
-                if x <= 7 then
+                if x <= 5 then
                     aktywnaKarta = 1
-                elseif x <= 13 then
+                elseif x <= 10 then
                     aktywnaKarta = 2
-                elseif x <= 19 then
+                elseif x <= 15 then
                     aktywnaKarta = 3
                     if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
-                else
+                elseif x <= 20 then
                     aktywnaKarta = 4
                     rednet.broadcast({ typ = "ZAPYTANIE_TABLICA" }, PROTOKOL)
+                else
+                    aktywnaKarta = 5
                 end
                 odswiezEkran(serverId)
 
             -- 2. Kliknięcie na dolny pasek (Dół: y == 20)
             elseif y == 20 then
-                -- [1/2/3/4] | [X]Reboot | [Q]
                 if x >= 12 and x <= 20 then
-                    -- Przycisk [X]Reboot
+                    rebootTargetTyp = "ALL"
                     trybRebootConfirm = true
                     odswiezEkran(serverId)
                 elseif x >= 23 then
-                    -- Przycisk [Q] Wyjście
                     term.clear()
                     term.setCursorPos(1, 1)
                     print("Wylaczono mobilny monitor.")
@@ -492,28 +608,56 @@ while true do
 
             -- 3. Dotykowe akcje na Karcie 4 (Tablica)
             elseif aktywnaKarta == 4 then
-                if y == 4 then -- [S] Skanuj
+                if y == 4 then
                     dodajWpis("Skanowanie tablic w sieci...", colors.yellow)
                     rednet.broadcast({ typ = "ZAPYTANIE_TABLICA" }, PROTOKOL)
                     if serverId then rednet.send(serverId, { typ = "ZAPYTANIE_TABLICA" }, PROTOKOL) end
                     odswiezEkran(serverId)
-                elseif y == 5 then -- [E] Edycja
+                elseif y == 5 then
                     edytujWierszModal(serverId)
                     odswiezEkran(serverId)
-                elseif y == 6 then -- [T] Test
+                elseif y == 6 then
                     dodajWpis("Wyslano wzorzec testowy.", colors.cyan)
                     rednet.broadcast({ typ = "TEST_TABLICY" }, PROTOKOL)
                     if serverId then rednet.send(serverId, { typ = "TEST_TABLICY" }, PROTOKOL) end
                     odswiezEkran(serverId)
-                elseif y == 7 then -- [C] Wyczysc
+                elseif y == 7 then
                     dodajWpis("Wyczyszczono tablice.", colors.orange)
                     rednet.broadcast({ typ = "WYCZYSC_TABLICE" }, PROTOKOL)
                     if serverId then rednet.send(serverId, { typ = "WYCZYSC_TABLICE" }, PROTOKOL) end
                     odswiezEkran(serverId)
-                elseif y == 8 then -- [R] Reset
+                elseif y == 8 then
                     dodajWpis("Przywrocono tryb ODJAZDY.", colors.green)
                     rednet.broadcast({ typ = "RESET_TABLICY" }, PROTOKOL)
                     if serverId then rednet.send(serverId, { typ = "RESET_TABLICY" }, PROTOKOL) end
+                    odswiezEkran(serverId)
+                end
+
+            -- 4. Dotykowe akcje na Karcie 5 (Reboot Manager)
+            elseif aktywnaKarta == 5 then
+                if y == 4 then -- [1] Reboot CAŁEJ sieci
+                    rebootTargetTyp = "ALL"
+                    trybRebootConfirm = true
+                    odswiezEkran(serverId)
+                elseif y == 5 then -- [2] Reboot SERWERA
+                    rebootTargetTyp = "SERVER"
+                    trybRebootConfirm = true
+                    odswiezEkran(serverId)
+                elseif y == 6 then -- [3] Reboot TABLIC
+                    rebootTargetTyp = "DISPLAY"
+                    trybRebootConfirm = true
+                    odswiezEkran(serverId)
+                elseif y == 7 then -- [4] Reboot POSTERUNKOW
+                    rebootTargetTyp = "CLIENT"
+                    trybRebootConfirm = true
+                    odswiezEkran(serverId)
+                elseif y == 8 then -- [5] Reboot WYBRANEGO ID
+                    restartWybranegoIDModal(serverId)
+                    odswiezEkran(serverId)
+                elseif y == 9 then -- [6] Alarm Testowy
+                    dodajWpis("Wyslano sygnal ALARM!", colors.red)
+                    rednet.broadcast({ typ = "ALARM", nazwa = "Terminal_Pocket", powod = "Sygnal Alarmowy z Pocket PC" }, PROTOKOL)
+                    if serverId then rednet.send(serverId, { typ = "ALARM", nazwa = "Terminal_Pocket", powod = "Sygnal Alarmowy" }, PROTOKOL) end
                     odswiezEkran(serverId)
                 end
             end
