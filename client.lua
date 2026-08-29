@@ -25,10 +25,13 @@ end
 local function wyszukajSygnalyKolejowe()
     local lista = {}
     for _, name in ipairs(peripheral.getNames()) do
-        local pType = (peripheral.getType(name) or ""):lower()
         local dev = peripheral.wrap(name)
-        if dev and (name:find("Create_Signal") or pType:find("signal") or dev.listBlockingTrainNames ~= nil) then
-            table.insert(lista, name)
+        if dev then
+            local isWireless = false
+            if dev.isWireless then pcall(function() isWireless = dev.isWireless() end) end
+            if not isWireless then
+                table.insert(lista, name)
+            end
         end
     end
     table.sort(lista)
@@ -70,8 +73,8 @@ local function kreatorKonfiguracji()
     local sygnaly = wyszukajSygnalyKolejowe()
     
     if #sygnaly > 0 then
-        print("\n--- DETEKCJA SYGNAŁÓW PREF_SIGNAL (WIRED NET) ---")
-        print(string.format("Wykryto %d sygnalow Create na kablu:", #sygnaly))
+        print("\n--- DETEKCJA SYGNAŁÓW (WIRED NET) ---")
+        print(string.format("Wykryto %d urzadzen na kablu:", #sygnaly))
         for idx, sigName in ipairs(sygnaly) do
             write(string.format(" Sygnal '%s' -> Tor nr [domyslnie %d]: ", sigName, idx))
             local inpTor = read()
@@ -131,12 +134,24 @@ else
     end
 end
 
--- Inicjalizacja modemu
-local modem = peripheral.find("modem")
-if not modem then
-    error("Error: Wireless modem not detected!")
+-- Inicjalizacja modemu bezprzewodowego Rednet
+local function znajdzModemBezprzewodowy()
+    for _, name in ipairs(peripheral.getNames()) do
+        local dev = peripheral.wrap(name)
+        if dev and dev.isWireless and dev.isWireless() then
+            return name, dev
+        end
+    end
+    return nil, nil
 end
-rednet.open(peripheral.getName(modem))
+
+local wirelessName, wirelessDev = znajdzModemBezprzewodowy()
+if wirelessName then
+    rednet.open(wirelessName)
+else
+    local m = peripheral.find("modem")
+    if m then pcall(function() rednet.open(peripheral.getName(m)) end) end
+end
 
 --------------------------------------------------------------------------------
 --             DYNAMIC PERIPHERAL SCANNING AND TRAIN PARSING                  --
@@ -227,29 +242,31 @@ end
 local function skanujPeryferia()
     local lista = {}
     for _, name in ipairs(peripheral.getNames()) do
-        local pType = peripheral.getType(name) or ""
         local dev = peripheral.wrap(name)
-
         if dev then
-            local tLower = pType:lower()
-            local nLower = name:lower()
+            local isWireless = false
+            if dev.isWireless then pcall(function() isWireless = dev.isWireless() end) end
 
-            local jestStacja = tLower:find("station") or nLower:find("station") or dev.getTrainName ~= nil or dev.getStationName ~= nil
-            local jestSygnal = tLower:find("signal") or nLower:find("signal") or nLower:find("create") 
-                               or (config.mapowanieSygnalow and config.mapowanieSygnalow[name] ~= nil)
-                               or dev.listBlockingTrainNames ~= nil or dev.hasTrain ~= nil or dev.getState ~= nil or dev.isBlocked ~= nil
-            local jestObserver = tLower:find("observer") or tLower:find("target") or nLower:find("observer")
+            if not isWireless then
+                local pType = (peripheral.getType(name) or ""):lower()
+                local nLower = name:lower()
 
-            if config.tryb == "AUTO" then
-                if jestStacja or jestSygnal or jestObserver then
+                local jestStacja = pType:find("station") or nLower:find("station") or dev.getTrainName ~= nil or dev.getStationName ~= nil
+                local jestSygnal = pType:find("signal") or nLower:find("signal") or nLower:find("create") 
+                                   or (config.mapowanieSygnalow and config.mapowanieSygnalow[name] ~= nil)
+                                   or dev.listBlockingTrainNames ~= nil or dev.hasTrain ~= nil or dev.getState ~= nil or dev.isBlocked ~= nil
+                local jestObserver = pType:find("observer") or pType:find("target") or nLower:find("observer")
+
+                if config.tryb == "AUTO" then
+                    table.insert(lista, { name = name, dev = dev, type = pType })
+                elseif config.tryb == "STACJA" and (jestStacja or jestSygnal) then
+                    table.insert(lista, { name = name, dev = dev, type = pType })
+                elseif config.tryb == "SYGNAL" then
+                    -- W trybie SYGNAL przyjmujemy WSZYSTKIE podłączone peryferia kablowe!
+                    table.insert(lista, { name = name, dev = dev, type = pType })
+                elseif config.tryb == "OBSERVER" then
                     table.insert(lista, { name = name, dev = dev, type = pType })
                 end
-            elseif config.tryb == "STACJA" and jestStacja then
-                table.insert(lista, { name = name, dev = dev, type = pType })
-            elseif config.tryb == "SYGNAL" and (jestSygnal or jestStacja or (config.mapowanieSygnalow and config.mapowanieSygnalow[name] ~= nil)) then
-                table.insert(lista, { name = name, dev = dev, type = pType })
-            elseif config.tryb == "OBSERVER" and jestObserver then
-                table.insert(lista, { name = name, dev = dev, type = pType })
             end
         end
     end
