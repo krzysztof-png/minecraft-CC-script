@@ -5,6 +5,8 @@ local PROTOKOL      = "kolej_net"
 local SERWER_HOST   = "centrala_glowna"
 local TYTUL_TABLICY = "DEPARTURES"
 
+local tts = fs.exists("tts.lua") and dofile("tts.lua") or nil
+
 -- 1. Modem Initialization & Station Speaker
 local modem = peripheral.find("modem")
 if not modem then
@@ -152,7 +154,7 @@ term.setCursorPos(1, 1)
 print("========================================")
 print("      CREATE DISPLAY CONTROLLER         ")
 print("========================================")
-print(string.format("Speaker:         %s", speaker and "ACTIVE (Station Chime)" or "None"))
+print(string.format("TTS Audio:       %s", tts and "ENGLISH TTS ACTIVE" or (speaker and "AKTYWNY (Gong)" or "Brak")))
 print(string.format("Detected Device: %s (%s)", dispName or "Native", dispType or "Terminal"))
 print(string.format("Board Size:      %d x %d (chars x rows)", szerokosc, wysokosc))
 print("Searching for central server...")
@@ -210,7 +212,11 @@ while true do
                     table.remove(historiaPrzejazdow)
                 end
 
-                zagrajGongDworcowy()
+                if tts then
+                    pcall(function() tts.announceTrain(pociag or "express", "1", "1") end)
+                else
+                    zagrajGongDworcowy()
+                end
 
                 print(string.format("[%s] Recorded: %s", czas, etykieta))
                 odswiezTablice()
@@ -254,7 +260,7 @@ while true do
                     wypiszWierszBezUpdate(l, string.format("%d. %s TEST", l - 1, textutils.formatTime(os.time(), true)))
                 end
                 odswiezFlapyTablicy()
-                zagrajGongDworcowy()
+                if tts then pcall(function() tts.announceTrain("test", "1", "1") end) else zagrajGongDworcowy() end
 
             elseif msg.typ == "WYCZYSC_TABLICE" then
                 trybManualny = true

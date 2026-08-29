@@ -76,8 +76,9 @@ local function wybierzRole()
     print(" [3] Mobile Log Terminal (log.lua)")
     print(" [4] Display Board Controller (display.lua)")
     print(" [5] 3x1 Electric Display (electric_display.lua)")
+    print(" [6] Platform & Track Display (platform_display.lua)")
     print("----------------------------------------")
-    write("Your selection [1-5]: ")
+    write("Your selection [1-6]: ")
 
     local rola = nil
     while not rola do
@@ -87,6 +88,7 @@ local function wybierzRole()
         if char == "3" then rola = "log" end
         if char == "4" then rola = "display" end
         if char == "5" then rola = "electric_display" end
+        if char == "6" then rola = "platform_display" end
     end
 
     local cfg = { rola = rola }
@@ -111,7 +113,7 @@ else
     end
 end
 
--- 3. DOWNLOAD TARGET SCRIPT
+-- 3. DOWNLOAD TARGET SCRIPT & DEPENDENCIES
 local docelowyPlik = config.rola .. ".lua"
 print("Downloading update: " .. docelowyPlik .. "...")
 
@@ -123,6 +125,14 @@ else
     print("[!] No GitHub connection. Attempting offline launch...")
     if not fs.exists(docelowyPlik) then
         error("Critical error: Missing file " .. docelowyPlik .. " on disk!")
+    end
+end
+
+-- Download TTS module for display roles
+if config.rola:find("display") then
+    local zdalnyTTS = pobierzZGitHuba("tts.lua")
+    if zdalnyTTS and #zdalnyTTS > 0 then
+        zapiszPlikLokalny("tts.lua", zdalnyTTS)
     end
 end
 

@@ -6,6 +6,8 @@ local PROTOKOL    = "kolej_net"
 local SERWER_HOST = "centrala_glowna"
 local MOJE_ID     = os.getComputerID()
 
+local tts = fs.exists("tts.lua") and dofile("tts.lua") or nil
+
 local function wczytajConfig()
     if fs.exists(CONFIG_FILE) then
         local f = fs.open(CONFIG_FILE, "r")
@@ -66,7 +68,6 @@ local speaker = peripheral.find("speaker")
 
 local function zagrajGongDworcowy()
     if not speaker then return end
-    -- Dwu-tonowy / Trzy-tonowy klasyczny gong kolejowy CSDIP
     pcall(function()
         speaker.playNote("chime", 1.0, 7)
         sleep(0.18)
@@ -162,14 +163,12 @@ end
 local historiaPrzejazdow = {}
 local trybManualny = false
 local scrollOffset = 0
-local jezykAngielski = false -- Przełączanie cykliczne PL / EN
+local jezykAngielski = false
 
 local function odswiezWyświetlaczPeronowy()
     if trybManualny then return end
 
     local czasGry = textutils.formatTime(os.time(), true)
-    
-    -- Cykliczna zmiana języka nagłówka (co ~8 sekund)
     jezykAngielski = (math.floor(scrollOffset / 16) % 2 == 1)
 
     local txtPeron = jezykAngielski and "PLATFORM" or "PERON"
@@ -186,12 +185,10 @@ local function odswiezWyświetlaczPeronowy()
         local opoznienieNum = tonumber(pociag.opoznienie) or 0
         local opoznTag = (opoznienieNum > 0) and (jezykAngielski and string.format(" [DELAY +%dm]", opoznienieNum) or string.format(" [+%d MIN]", opoznienieNum)) or ""
 
-        -- Linia 2: Czas + Nazwa Pociągu + Ewentualne opóźnienie
         local linia2 = string.format("[%s] %s%s", pociag.czas, pociag.pociag or "Pociag Osobowy", opoznTag)
         local kolLinia2 = (opoznienieNum > 0) and colors.orange or colors.yellow
         wypiszWiersz(2, linia2, kolLinia2, colors.black)
 
-        -- Linia 3: Kierunek z płynnym przewijaniem
         local relacja = (jezykAngielski and "-> TO: " or "-> DO: ") .. (pociag.punkt or "Stacja Docelowa")
         if #relacja > szerokosc then
             local rozszerzony = relacja .. "   " .. relacja
@@ -200,7 +197,6 @@ local function odswiezWyświetlaczPeronowy()
         end
         wypiszWiersz(3, relacja, colors.white, colors.black)
 
-        -- Linia 4+: Status wjazdu / Opóźnienia
         if wysokosc >= 4 then
             local txtStatus = opoznienieNum > 0 and (jezykAngielski and " OPOZNIENIE / DELAYED " or " OPOZNIENIE POCIAGU ")
                               or (jezykAngielski and " STATUS: APPROACHING TRACK " or " STATUS: WJEZDZA NA TOR ") .. config.tor
@@ -231,7 +227,7 @@ print("========================================")
 print("    PROFESJONALNY WYŚWIETLACZ PERONOWY  ")
 print("========================================")
 print(string.format("Stacja:  %s | Peron: %s | Tor: %s", config.stacja, config.peron, config.tor))
-print(string.format("Glosnik: %s", speaker and "AKTYWNY (Gong stacyjny)" or "Brak"))
+print(string.format("TTS Audio: %s", tts and "ENGLISH TTS ACTIVE" or (speaker and "AKTYWNY (Gong)" or "Brak")))
 print(string.format("Ekran:   %s (%dx%d)", dispName, szerokosc, wysokosc))
 print("Laczenie z centrala...")
 
@@ -284,8 +280,12 @@ while true do
                 table.insert(historiaPrzejazdow, 1, { czas = czas, punkt = punkt, pociag = pociag, opoznienie = opoznienie })
                 if #historiaPrzejazdow > 5 then table.remove(historiaPrzejazdow) end
 
-                -- Odtworzenie stacyjnego gongu audio na głośniku przy wjeździe!
-                zagrajGongDworcowy()
+                -- Zapowiedź dźwiękowa English TTS + Gong!
+                if tts then
+                    pcall(function() tts.announceTrain(pociag, config.peron, config.tor) end)
+                else
+                    zagrajGongDworcowy()
+                end
 
                 print(string.format("[%s] Odnotowano peronowy: %s -> %s", czas, punkt, pociag))
                 scrollOffset = 0
@@ -331,7 +331,7 @@ while true do
                     wypiszWiersz(l, string.format("%d. TEST %s", l - 1, textutils.formatTime(os.time(), true)), colors.white, colors.black)
                 end
                 odswiezFlapyTablicy()
-                zagrajGongDworcowy()
+                if tts then pcall(function() tts.announceTrain("test", config.peron, config.tor) end) else zagrajGongDworcowy() end
 
             elseif msg.typ == "WYCZYSC_TABLICE" then
                 trybManualny = true

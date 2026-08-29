@@ -7,6 +7,8 @@ local TYTUL_TABLICY = "ODJAZDY"
 local NAZWA_STACJI  = "STACJA CENTRALNA"
 local MOJE_ID       = os.getComputerID()
 
+local tts = fs.exists("tts.lua") and dofile("tts.lua") or nil
+
 -- 1. Inicjalizacja modemu oraz głośnika
 local modem = peripheral.find("modem")
 if not modem then
@@ -202,7 +204,7 @@ term.setCursorPos(1, 1)
 print("========================================")
 print("  PROFESJONALNA TABLICA ELEKTRONICZNA  ")
 print("========================================")
-print(string.format("Glosnik: %s", speaker and "AKTYWNY (Gong stacyjny)" or "Brak"))
+print(string.format("TTS Audio: %s", tts and "ENGLISH TTS ACTIVE" or (speaker and "AKTYWNY (Gong)" or "Brak")))
 print(string.format("Urzadzenie: %s (%s)", dispName, dispType))
 print(string.format("Rozdzielczosc: %d x %d znakow", szerokosc, wysokosc))
 print("Laczenie z centrala...")
@@ -257,7 +259,11 @@ while true do
                 table.insert(historiaPrzejazdow, 1, { czas = czas, punkt = punkt, pociag = pociag, opoznienie = opoznienie })
                 if #historiaPrzejazdow > 8 then table.remove(historiaPrzejazdow) end
 
-                zagrajGongDworcowy()
+                if tts then
+                    pcall(function() tts.announceTrain(pociag or "express", "1", "1") end)
+                else
+                    zagrajGongDworcowy()
+                end
 
                 print(string.format("[%s] Odnotowano pro 3x1: %s", czas, punkt))
                 scrollOffset = 0
@@ -303,7 +309,7 @@ while true do
                     wypiszWiersz(l, string.format("%d. TEST PRO %s", l - 1, textutils.formatTime(os.time(), true)), colors.white, colors.black)
                 end
                 odswiezFlapyTablicy()
-                zagrajGongDworcowy()
+                if tts then pcall(function() tts.announceTrain("test", "1", "1") end) else zagrajGongDworcowy() end
 
             elseif msg.typ == "WYCZYSC_TABLICE" then
                 trybManualny = true
