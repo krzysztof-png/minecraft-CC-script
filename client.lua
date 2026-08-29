@@ -22,6 +22,19 @@ local function zapiszConfig(cfg)
     f.close()
 end
 
+local function wyszukajSygnalyKolejowe()
+    local lista = {}
+    for _, name in ipairs(peripheral.getNames()) do
+        local pType = (peripheral.getType(name) or ""):lower()
+        local dev = peripheral.wrap(name)
+        if dev and (name:find("Create_Signal") or pType:find("signal") or dev.listBlockingTrainNames ~= nil) then
+            table.insert(lista, name)
+        end
+    end
+    table.sort(lista)
+    return lista
+end
+
 local function kreatorKonfiguracji()
     term.clear()
     term.setCursorPos(1, 1)
@@ -37,7 +50,7 @@ local function kreatorKonfiguracji()
     print("\nSelect operating and detection mode:")
     print(" [1] OBSERVER (Redstone Signal / Train Observer)")
     print(" [2] STATION  (Create Train Station - full data)")
-    print(" [3] SIGNAL   (Train Signal - listBlockingTrainNames)")
+    print(" [3] SIGNAL   (Create Train Signals - wired net)")
     print(" [4] BEACON   (Online status only)")
     print(" [5] AUTO     (All detected sensors / stations)")
     write("Selection [1-5]: ")
@@ -52,6 +65,21 @@ local function kreatorKonfiguracji()
         if ch == "5" then tryb = "AUTO";     break end
     end
     print(tryb)
+
+    local mapowanieSygnalow = {}
+    local sygnaly = wyszukajSygnalyKolejowe()
+    
+    if #sygnaly > 0 then
+        print("\n--- DETEKCJA SYGNAŁÓW PREF_SIGNAL (WIRED NET) ---")
+        print(string.format("Wykryto %d sygnalow Create na kablu:", #sygnaly))
+        for idx, sigName in ipairs(sygnaly) do
+            write(string.format(" Sygnal '%s' -> Tor nr [domyslnie %d]: ", sigName, idx))
+            local inpTor = read()
+            if inpTor == "" then inpTor = tostring(idx) end
+            mapowanieSygnalow[sigName] = inpTor
+            print(string.format("  [OK] %s = Tor %s", sigName, inpTor))
+        end
+    end
 
     local stronaRS = "auto"
     if tryb == "OBSERVER" or tryb == "AUTO" then
@@ -78,6 +106,7 @@ local function kreatorKonfiguracji()
         nazwaKlienta = nazwa,
         tryb = tryb,
         stronaRedstone = stronaRS,
+        mapowanieSygnalow = mapowanieSygnalow,
         interwalPing = 2
     }
     zapiszConfig(cfg)
@@ -173,7 +202,7 @@ local function pobierzNazweZPeryferium(name, dev)
     if dev.hasTrain then
         local ok, res = pcall(dev.hasTrain)
         if ok and res == true then
-            return "Train at platform"
+            return "Train at signal"
         end
     elseif dev.isTrainPresent then
         local ok, res = pcall(dev.isTrainPresent)
@@ -195,7 +224,7 @@ local function skanujPeryferia()
             if dev then
                 local tLower = pType:lower()
                 local jestStacja = tLower:find("station") or dev.getTrainName ~= nil or dev.getStationName ~= nil
-                local jestSygnal = tLower:find("signal") or dev.listBlockingTrainNames ~= nil
+                local jestSygnal = tLower:find("signal") or dev.listBlockingTrainNames ~= nil or name:find("Create_Signal")
                 local jestObserver = tLower:find("observer") or tLower:find("target")
 
                 if config.tryb == "AUTO" then
@@ -282,120 +311,91 @@ while true do
         znanePeryferia = skanujPeryferia()
         scanTimer = os.startTimer(2.0)
 
-    -- 2. Heartbeat PING
+    -- 2. Heartbeat Ping
     elseif event == "timer" and p1 == pingTimer then
         serverId = pobierzServerId()
-
-        local glownyPociag = nil
-        for _, item in ipairs(znanePeryferia) do
-            local pName = pobierzNazweZPeryferium(item.name, item.dev)
-            if pName then
-                glownyPociag = pName
-                break
-            end
-        end
-
-        local statusPayload = glownyPociag or (bylSygnalRedstone and "PRZEJAZD" or "WOLNY")
-
         if serverId then
             rednet.send(serverId, {
                 typ = "PING",
                 nazwa = config.nazwaKlienta,
                 tryb = config.tryb,
-                status = statusPayload,
-                pociag = glownyPociag,
-                peryferia = #znanePeryferia
+                status = "ONLINE (" .. #znanePeryferia .. " dev)",
+                pociag = ostatnioWykrytyGlowny
             }, PROTOKOL)
         end
-
         pingTimer = os.startTimer(config.interwalPing)
 
-    -- 3. Detection from Create station / signal peripherals
+    -- 3. Main Loop Train Detection
     elseif event == "timer" and p1 == loopTimer then
-        serverId = pobierzServerId()
+        local wykrytoWTejIteracji = false
 
-        if config.tryb == "STACJA" or config.tryb == "SYGNAL" or config.tryb == "AUTO" then
-            local jakakolwiekDetekcja = false
+        -- A. Detekcja z peryferii (Create Train Signals / Stations / Observers)
+        for _, item in ipairs(znanePeryferia) do
+            local nazwaPociagu = pobierzNazweZPeryferium(item.name, item.dev)
+            if nazwaPociagu then
+                wykrytoWTejIteracji = true
+                if ostatnieWykrytePociagi[item.name] ~= nazwaPociagu then
+                    ostatnieWykrytePociagi[item.name] = nazwaPociagu
+                    ostatnioWykrytyGlowny = nazwaPociagu
 
-            for _, item in ipairs(znanePeryferia) do
-                local periKey = item.name
-                local pociag = pobierzNazweZPeryferium(item.name, item.dev)
-                local staryPociag = ostatnieWykrytePociagi[periKey]
+                    -- Wyznaczenie numeru toru przypisanego do tego sygnału w konfiguracji
+                    local wyznaczonyTor = (config.mapowanieSygnalow and config.mapowanieSygnalow[item.name]) or "1"
 
-                if pociag then
-                    jakakolwiekDetekcja = true
-                    if pociag ~= staryPociag then
-                        ostatnieWykrytePociagi[periKey] = pociag
-                        local czasGry = textutils.formatTime(os.time(), true)
+                    print(string.format("[%s] Train at %s (Tor %s): %s", textutils.formatTime(os.time(), true), item.name, wyznaczonyTor, nazwaPociagu))
+                    rysujEkran(serverId, string.format("Train at %s (T%s): %s", item.name, wyznaczonyTor, nazwaPociagu), #znanePeryferia)
 
-                        local nazwaStacji = nil
-                        if item.dev.getStationName then
-                            local ok, sName = pcall(item.dev.getStationName)
-                            if ok and sName and #sName > 0 then nazwaStacji = sName end
-                        end
-
-                        local punktOpis = config.nazwaKlienta
-                        if nazwaStacji then
-                            punktOpis = punktOpis .. " (" .. nazwaStacji .. ")"
-                        elseif #znanePeryferia > 1 then
-                            punktOpis = punktOpis .. " [" .. periKey .. "]"
-                        end
-
-                        if serverId then
-                            rednet.send(serverId, {
-                                typ = "PRZEJAZD_POCIAGU",
-                                nazwa = punktOpis,
-                                tryb = config.tryb,
-                                pociag = pociag,
-                                czas = czasGry,
-                                peryferium = periKey
-                            }, PROTOKOL)
-                        end
-
-                        rysujEkran(serverId, "Detected: " .. pociag, #znanePeryferia)
-                    end
-                else
-                    if staryPociag then
-                        ostatnieWykrytePociagi[periKey] = nil
-                        rysujEkran(serverId, "Section cleared (" .. periKey .. ")", #znanePeryferia)
+                    serverId = pobierzServerId()
+                    if serverId then
+                        rednet.send(serverId, {
+                            typ = "PRZEJAZD_POCIAGU",
+                            nazwa = config.nazwaKlienta,
+                            pociag = nazwaPociagu,
+                            tor = wyznaczonyTor,
+                            sygnal = item.name,
+                            tryb = config.tryb,
+                            czas = textutils.formatTime(os.time(), true)
+                        }, PROTOKOL)
                     end
                 end
-            end
-
-            if not jakakolwiekDetekcja and ostatnioWykrytyGlowny then
-                ostatnioWykrytyGlowny = nil
+            else
+                ostatnieWykrytePociagi[item.name] = nil
             end
         end
 
-        loopTimer = os.startTimer(0.1)
-
-    -- 4. Redstone Signal Detection (Observer / Detector)
-    elseif event == "redstone" and (config.tryb == "OBSERVER" or config.tryb == "AUTO") then
-        serverId = pobierzServerId()
-        local jestSygnal = czySygnalRedstone()
-
-        if jestSygnal and not bylSygnalRedstone then
+        -- B. Detekcja z Redstone Observera
+        local jestRS = czySygnalRedstone()
+        if jestRS and not bylSygnalRedstone then
             bylSygnalRedstone = true
-            local czasGry = textutils.formatTime(os.time(), true)
+            wykrytoWTejIteracji = true
+            local nazwaPociagu = "Pociag (Redstone)"
+            ostatnioWykrytyGlowny = nazwaPociagu
 
+            print(string.format("[%s] Redstone pulse detected!", textutils.formatTime(os.time(), true)))
+            rysujEkran(serverId, "Redstone pulse -> Train", #znanePeryferia)
+
+            serverId = pobierzServerId()
             if serverId then
                 rednet.send(serverId, {
                     typ = "PRZEJAZD_POCIAGU",
                     nazwa = config.nazwaKlienta,
-                    tryb = config.tryb,
-                    pociag = "Passed Redstone detector",
-                    czas = czasGry
+                    pociag = nazwaPociagu,
+                    tor = "1",
+                    tryb = "OBSERVER",
+                    czas = textutils.formatTime(os.time(), true)
                 }, PROTOKOL)
             end
-
-            rysujEkran(serverId, "Passage detected (RS) at " .. czasGry, #znanePeryferia)
-
-        elseif not jestSygnal and bylSygnalRedstone then
+        elseif not jestRS and bylSygnalRedstone then
             bylSygnalRedstone = false
-            rysujEkran(serverId, "Redstone detector cleared", #znanePeryferia)
         end
 
-    -- 5. Remote Rednet command handler (REBOOT / REBOOT_ALL)
+        if not wykrytoWTejIteracji and ostatnioWykrytyGlowny then
+            ostatnioWykrytyGlowny = nil
+            rysujEkran(serverId, "Listening for trains...", #znanePeryferia)
+        end
+
+        loopTimer = os.startTimer(0.1)
+
+    -- 4. Remote commands (REBOOT)
     elseif event == "rednet_message" and p3 == PROTOKOL then
         local senderId, msg = p1, p2
         if type(msg) == "table" and (msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL") then
