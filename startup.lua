@@ -1,11 +1,11 @@
 --------------------------------------------------------------------------------
---                SELF-UPDATING BOOTSTRAPPER & RUNNER                         --
+--                SELF-UPDATING BOOTSTRAPPER & RUNNER (startup.lua)             --
 --------------------------------------------------------------------------------
 local GITHUB_BASE = "https://raw.githubusercontent.com/krzysztof-png/minecraft-CC-script/main/"
 local CONFIG_FILE = "system_config.json"
 
 if not http then
-    error("Blad: API HTTP w ComputerCraft jest wylaczone!")
+    error("Error: HTTP API is disabled in ComputerCraft config!")
 end
 
 local function pobierzZGitHuba(nazwaPliku)
@@ -43,22 +43,22 @@ local function zapiszPlikLokalny(sciezka, dane)
     f.close()
 end
 
--- 1. SAMOAKTUALIZACJA: Sprawdzanie nowej wersji startup.lua
-print("Sprawdzanie aktualizacji bootloadera (startup.lua)...")
+-- 1. SELF-UPDATE: Check for startup.lua updates
+print("Checking bootloader updates (startup.lua)...")
 local zdalnyStartup = pobierzZGitHuba("startup.lua")
 
 if zdalnyStartup and #zdalnyStartup > 0 then
     local lokalnyStartup = czytajPlikLokalny("startup.lua")
     if lokalnyStartup ~= zdalnyStartup then
-        print("[!] Wykryto nowa wersje startup.lua! Aktualizowanie...")
+        print("[!] New version of startup.lua detected! Updating...")
         zapiszPlikLokalny("startup.lua", zdalnyStartup)
-        print("[OK] Zaktualizowano bootloader. Restart...")
+        print("[OK] Bootloader updated. Rebooting...")
         sleep(1)
         os.reboot()
     end
 end
 
--- 2. KONFIGURACJA I WYBÓR ROLI
+-- 2. CONFIGURATION & ROLE SELECTION WIZARD
 local function wczytajConfig()
     local tresc = czytajPlikLokalny(CONFIG_FILE)
     return tresc and textutils.unserializeJSON(tresc) or nil
@@ -68,16 +68,16 @@ local function wybierzRole()
     term.clear()
     term.setCursorPos(1, 1)
     print("========================================")
-    print("      INICJALIZACJA SYSTEMU KOLEI       ")
+    print("     RAILWAY SYSTEM INITIALIZATION      ")
     print("========================================")
-    print("Wybierz role tego komputera:")
-    print(" [1] Serwer Centralny (server.lua)")
-    print(" [2] Klient / Posterunek (client.lua)")
-    print(" [3] Mobilny Terminal Logow (log.lua)")
-    print(" [4] Tablica Display Board (display.lua)")
-    print(" [5] Tablica Elektryczna 3x1 (electric_display.lua)")
+    print("Select this computer's role:")
+    print(" [1] Central Server (server.lua)")
+    print(" [2] Station Client (client.lua)")
+    print(" [3] Mobile Log Terminal (log.lua)")
+    print(" [4] Display Board Controller (display.lua)")
+    print(" [5] 3x1 Electric Display (electric_display.lua)")
     print("----------------------------------------")
-    write("Twoj wybor [1-5]: ")
+    write("Your selection [1-5]: ")
 
     local rola = nil
     while not rola do
@@ -98,7 +98,7 @@ local config = wczytajConfig()
 if not config or not config.rola then
     config = wybierzRole()
 else
-    print("Rola: " .. config.rola .. " (Wcisnij [R] by zmienic)")
+    print("Role: " .. config.rola .. " (Press [R] to change)")
     local timer = os.startTimer(1.5)
     while true do
         local event, p1 = os.pullEvent()
@@ -111,24 +111,24 @@ else
     end
 end
 
--- 3. POBIERANIE WŁAŚCIWEGO SKRYPTU (server.lua / client.lua / log.lua / display.lua)
+-- 3. DOWNLOAD TARGET SCRIPT
 local docelowyPlik = config.rola .. ".lua"
-print("Pobieranie aktualizacji: " .. docelowyPlik .. "...")
+print("Downloading update: " .. docelowyPlik .. "...")
 
 local zdalnySkrypt = pobierzZGitHuba(docelowyPlik)
 if zdalnySkrypt and #zdalnySkrypt > 0 then
     zapiszPlikLokalny(docelowyPlik, zdalnySkrypt)
-    print("[OK] Zaktualizowano pomyslnie.")
+    print("[OK] Updated successfully.")
 else
-    print("[!] Brak polaczenia z GitHubem. Proba uruchomienia wersji offline...")
+    print("[!] No GitHub connection. Attempting offline launch...")
     if not fs.exists(docelowyPlik) then
-        error("Blad krytyczny: Brak pliku " .. docelowyPlik .. " na dysku!")
+        error("Critical error: Missing file " .. docelowyPlik .. " on disk!")
     end
 end
 
 sleep(0.5)
 
--- 4. URUCHOMIENIE
+-- 4. LAUNCH
 term.clear()
 term.setCursorPos(1, 1)
 shell.run(docelowyPlik)

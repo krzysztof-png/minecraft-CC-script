@@ -1,7 +1,6 @@
--- monitor_signals.lua
--- Ciagle sprawdzanie i wyswietlanie listBlockingTrainNames()
+-- list.lua / monitor_signals.lua
+-- Continuous monitor for listBlockingTrainNames()
 
--- Znajdz wszystkie peryferia posiadajace metode listBlockingTrainNames
 local signals = {}
 
 for _, name in ipairs(peripheral.getNames()) do
@@ -12,47 +11,46 @@ for _, name in ipairs(peripheral.getNames()) do
 end
 
 if #signals == 0 then
-    print("Blad: Nie znaleziono zadnego peryferium z metoda listBlockingTrainNames()!")
-    print("Dostepne peryferia w sieci:")
+    print("Error: No peripheral found with listBlockingTrainNames() method!")
+    print("Available network peripherals:")
     for _, name in ipairs(peripheral.getNames()) do
         print(" - " .. name .. " (" .. (peripheral.getType(name) or "unknown") .. ")")
     end
     return
 end
 
-print("Znaleziono " .. #signals .. " sygnal(y). Rozpoczynam monitorowanie...")
+print("Found " .. #signals .. " signal(s). Starting monitor...")
 sleep(1)
 
--- Glowna petla odpytujaca
 while true do
     term.clear()
     term.setCursorPos(1, 1)
     
-    print("=== PODGLAD BLOKUJACYCH POCIAGOW ===")
-    print("Czas: " .. os.date("%T") .. " | [Ctrl+T aby zatrzymac]")
+    print("=== BLOCKING TRAINS MONITOR ===")
+    print("Time: " .. os.date("%T") .. " | [Ctrl+T to stop]")
     print(string.rep("-", 45))
 
     for _, sig in ipairs(signals) do
-        print("\nSygnal: " .. sig.name)
+        print("\nSignal: " .. sig.name)
         
         local ok, trains = pcall(sig.device.listBlockingTrainNames)
         
         if not ok then
-            print("  [BLAD ODCZYTU]: " .. tostring(trains))
+            print("  [READ ERROR]: " .. tostring(trains))
         elseif type(trains) == "table" then
             if #trains == 0 then
-                print("  Stan: Brak pociagow w sekcji (Tor wolny)")
+                print("  Status: No trains in section (Track clear)")
             else
-                print("  Wykryte pociagi (" .. #trains .. "):")
+                print("  Detected trains (" .. #trains .. "):")
                 for i, trainName in ipairs(trains) do
                     print(string.format("   [%d] %s", i, tostring(trainName)))
                 end
             end
         else
-            print("  Zwrocona wartosc: " .. tostring(trains))
+            print("  Return value: " .. tostring(trains))
         end
     end
 
     print("\n" .. string.rep("-", 45))
-    sleep(0.1) -- Odswiezanie co 2 ticki gry (100 ms)
+    sleep(0.1)
 end

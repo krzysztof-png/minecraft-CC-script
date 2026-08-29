@@ -1,20 +1,19 @@
 --------------------------------------------------------------------------------
---            POPRAWIONY STEROWNIK WYŚWIETLACZA CREATE (display.lua)          --
+--                CREATE DISPLAY BOARD CONTROLLER (display.lua)               --
 --------------------------------------------------------------------------------
 local PROTOKOL      = "kolej_net"
 local SERWER_HOST   = "centrala_glowna"
-local TYTUL_TABLICY = "ODJAZDY"
+local TYTUL_TABLICY = "DEPARTURES"
 
--- 1. Inicjalizacja modemu
+-- 1. Modem Initialization
 local modem = peripheral.find("modem")
 if not modem then
-    error("Blad: Nie znaleziono modemu bezprzewodowego/ender!")
+    error("Error: Wireless or Ender modem not found!")
 end
 rednet.open(peripheral.getName(modem))
 
--- 2. Wyszukanie wyświetlacza (Display Link / Display Board / Monitor)
+-- 2. Peripheral Discovery (Display Link / Display Board / Monitor)
 local function znajdzWyswietlacz()
-    -- 1. Sprawdzenie peryferiów podłączonych po stronach lub po nazwie
     for _, name in ipairs(peripheral.getNames()) do
         if name ~= peripheral.getName(modem) then
             local dev = peripheral.wrap(name)
@@ -27,7 +26,6 @@ local function znajdzWyswietlacz()
         end
     end
 
-    -- 2. Domyślny fallback: Ekran komputera
     return term.native(), "terminal", "terminal"
 end
 
@@ -46,7 +44,7 @@ end
 
 local szerokosc, wysokosc = pobierzWymiary()
 
--- Odświeżenie płatków/bufora wyświetlacza Create (wywołanie display.update())
+-- Update Create display board buffer / flaps (display.update())
 local function odswiezFlapyTablicy()
     if not display then return end
     if display.update then pcall(display.update) end
@@ -55,7 +53,7 @@ local function odswiezFlapyTablicy()
     if display.updateBoard then pcall(display.updateBoard) end
 end
 
--- Zapis pojedynczego wiersza bez natychmiastowego update()
+-- Write single line without immediate update()
 local function wypiszWierszBezUpdate(nrLinii, tekst)
     if not display or nrLinii < 1 or nrLinii > wysokosc then return end
 
@@ -71,13 +69,13 @@ local function wypiszWierszBezUpdate(nrLinii, tekst)
         end)
     end
 
-    -- 1. Metoda setCursorPos + write (zgodnie z wzorcem Create Display Link)
+    -- 1. setCursorPos + write (Create Display Link standard)
     if display.setCursorPos and display.write then
         pcall(display.setCursorPos, 1, nrLinii)
         pcall(display.write, sformatowany)
     end
 
-    -- 2. Metoda setLine (1-indexed oraz 0-indexed)
+    -- 2. setLine (1-indexed and 0-indexed fallback)
     if display.setLine then
         local ok = pcall(display.setLine, nrLinii, sformatowany)
         if not ok and (nrLinii - 1) >= 0 then
@@ -85,7 +83,7 @@ local function wypiszWierszBezUpdate(nrLinii, tekst)
         end
     end
 
-    -- 3. Metoda setRow
+    -- 3. setRow
     if display.setRow then
         local ok = pcall(display.setRow, nrLinii, sformatowany)
         if not ok and (nrLinii - 1) >= 0 then
@@ -94,7 +92,7 @@ local function wypiszWierszBezUpdate(nrLinii, tekst)
     end
 end
 
--- Zapis wiersza z natychmiastowym wywołaniem update()
+-- Write line with immediate update()
 local function wypiszWiersz(nrLinii, tekst)
     wypiszWierszBezUpdate(nrLinii, tekst)
     odswiezFlapyTablicy()
@@ -136,15 +134,15 @@ local function odswiezTablice()
     odswiezFlapyTablicy()
 end
 
--- 3. Interfejs konsoli komputera i łączenie z serwerem
+-- 3. Computer Console Interface & Server Connection
 term.clear()
 term.setCursorPos(1, 1)
 print("========================================")
 print("      CREATE DISPLAY CONTROLLER         ")
 print("========================================")
-print(string.format("Wykryty urzadzenie: %s (%s)", dispName or "Natywny", dispType or "Terminal"))
-print(string.format("Rozmiar tablicy:    %d x %d (znaki x wiersze)", szerokosc, wysokosc))
-print("Szukanie serwera centralnego...")
+print(string.format("Detected Device: %s (%s)", dispName or "Native", dispType or "Terminal"))
+print(string.format("Board Size:      %d x %d (chars x rows)", szerokosc, wysokosc))
+print("Searching for central server...")
 
 local serverId = rednet.lookup(PROTOKOL, SERWER_HOST)
 local lastServerCheck = os.clock()
@@ -164,11 +162,11 @@ while not serverId do
     serverId = pobierzServerId()
 end
 
-print("Polaczono z centrala #" .. serverId)
+print("Connected to central server #" .. serverId)
 wyczyscTablice()
 odswiezTablice()
 
--- Pobranie historii przejazdów z bazy danych serwera przy starcie i wysłanie PING
+-- Register display and download initial train database
 rednet.send(serverId, {
     typ = "PING",
     nazwa = "Tablica_" .. os.getComputerID(),
@@ -184,7 +182,7 @@ local rescanTimer = os.startTimer(5)
 while true do
     local event, p1, p2, p3 = os.pullEvent()
 
-    -- Odbiór meldunków i danych z sieci
+    -- Rednet network messages
     if event == "rednet_message" and p3 == PROTOKOL then
         local senderId, msg = p1, p2
         if type(msg) == "table" then
@@ -200,7 +198,7 @@ while true do
                     table.remove(historiaPrzejazdow)
                 end
 
-                print(string.format("[%s] Odnotowano: %s", czas, etykieta))
+                print(string.format("[%s] Recorded: %s", czas, etykieta))
                 odswiezTablice()
 
             elseif msg.typ == "BAZA_PRZEJAZDOW" and msg.baza then
@@ -209,7 +207,7 @@ while true do
                     for i = #msg.baza, math.max(1, #msg.baza - (wysokosc - 2)), -1 do
                         local r = msg.baza[i]
                         local czas = r.czas_gry or (r.timestamp and r.timestamp:sub(12,16)) or "--:--"
-                        local punkt = r.posterunek or "Trasa"
+                        local punkt = r.posterunek or "Track"
                         local pociag = r.nazwa_pociagu
                         local etykieta = (pociag and pociag ~= "") and (punkt .. " -> " .. pociag) or punkt
                         table.insert(historiaPrzejazdow, { czas = czas, punkt = etykieta })
@@ -231,38 +229,38 @@ while true do
                 local nr = tonumber(msg.linia) or 1
                 local txt = msg.tekst or ""
                 wypiszWiersz(nr, txt)
-                print(string.format("[MANUAL] Wiersz %d: %s", nr, txt))
+                print(string.format("[MANUAL] Line %d: %s", nr, txt))
 
             elseif msg.typ == "TEST_TABLICY" then
                 trybManualny = true
                 if display.clear then pcall(display.clear) end
-                wypiszWierszBezUpdate(1, string.format("TEST TABLICY [%dx%d]", szerokosc, wysokosc))
+                wypiszWierszBezUpdate(1, string.format("DISPLAY TEST [%dx%d]", szerokosc, wysokosc))
                 for l = 2, wysokosc do
                     wypiszWierszBezUpdate(l, string.format("%d. %s TEST", l - 1, textutils.formatTime(os.time(), true)))
                 end
                 odswiezFlapyTablicy()
-                print("[TEST] Wyslano wzorzec testowy na tablice.")
+                print("[TEST] Test pattern sent to display.")
 
             elseif msg.typ == "WYCZYSC_TABLICE" then
                 trybManualny = true
                 wyczyscTablice()
-                print("[MANUAL] Wyczyszczono tablice.")
+                print("[MANUAL] Display cleared.")
 
             elseif msg.typ == "RESET_TABLICY" then
                 trybManualny = false
                 wyczyscTablice()
                 odswiezTablice()
                 if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
-                print("[RESET] Przywrocono tryb ODJAZDY.")
+                print("[RESET] Returned to DEPARTURES mode.")
 
             elseif msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL" then
-                print("Otrzymano zdalne polecenie REBOOT!")
+                print("Received remote REBOOT command!")
                 sleep(0.5)
                 os.reboot()
             end
         end
 
-    -- Heartbeat PING do serwera centralnego
+    -- Heartbeat PING to central server
     elseif event == "timer" and p1 == pingTimer then
         serverId = pobierzServerId()
         if serverId then
@@ -275,7 +273,7 @@ while true do
         end
         pingTimer = os.startTimer(2)
 
-    -- Cykliczny re-skan peryferium wyświetlacza (na przypadek podłączenia w trakcie)
+    -- Periodic display peripheral re-scan
     elseif event == "timer" and p1 == rescanTimer then
         local nowyDisp, nName, nType = znajdzWyswietlacz()
         if nowyDisp ~= display then
@@ -289,7 +287,7 @@ while true do
         pobierzServerId()
         rescanTimer = os.startTimer(5)
 
-    -- Cykliczne odświeżanie zegara
+    -- Clock update timer
     elseif event == "timer" and p1 == zegarTimer then
         if not trybManualny then odswiezTablice() end
         zegarTimer = os.startTimer(2)

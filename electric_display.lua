@@ -1,31 +1,28 @@
 --------------------------------------------------------------------------------
---         ELEKTRONICZNA TABLICA ODJAZDÓW 3x1 BLOKÓW (electric_display.lua)      --
+--         ELECTRONIC DEPARTURE BOARD 3x1 BLOCKS (electric_display.lua)         --
 --------------------------------------------------------------------------------
 local PROTOKOL      = "kolej_net"
 local SERWER_HOST   = "centrala_glowna"
-local TYTUL_TABLICY = "ODJAZDY"
+local TYTUL_TABLICY = "DEPARTURES"
 local MOJE_ID       = os.getComputerID()
 
--- 1. Inicjalizacja modemu
+-- 1. Modem Initialization
 local modem = peripheral.find("modem")
 if not modem then
-    error("Blad: Nie znaleziono modemu bezprzewodowego/ender!")
+    error("Error: Wireless/ender modem not found!")
 end
 rednet.open(peripheral.getName(modem))
 
 --------------------------------------------------------------------------------
---              WYSZUKANIE I KONFIGURACJA MONITOROW/TABLIC 3x1                --
+--                3x1 DISPLAY MONITOR DISCOVERY & SETUP                       --
 --------------------------------------------------------------------------------
 local function znajdzWyswietlacz3x1()
-    -- 1. Szukanie zewnętrznego monitora ComputerCraft
     local mon = peripheral.find("monitor")
     if mon then
-        -- Dla ekranu 3x1 bloków w CC zalecany skala tekstu to 0.5 lub 1.0 dla wysokiej czytelności
         pcall(function() mon.setTextScale(0.5) end)
         return mon, peripheral.getName(mon), "monitor"
     end
 
-    -- 2. Szukanie dedykowanych wyświetlaczy Create
     for _, name in ipairs(peripheral.getNames()) do
         if name ~= peripheral.getName(modem) then
             local dev = peripheral.wrap(name)
@@ -38,7 +35,6 @@ local function znajdzWyswietlacz3x1()
         end
     end
 
-    -- 3. Fallback: Ekran komputera
     return term.native(), "terminal", "terminal"
 end
 
@@ -58,7 +54,6 @@ end
 local szerokosc, wysokosc = pobierzWymiary()
 local isColor = display.isColor and display.isColor() or false
 
--- Odświeżenie bufora/płatków tablicy
 local function odswiezFlapyTablicy()
     if not display then return end
     if display.update then pcall(display.update) end
@@ -71,7 +66,6 @@ local function setC(fg, bg)
     if display.setBackgroundColor then pcall(display.setBackgroundColor, bg or colors.black) end
 end
 
--- Rysowanie pojedynczego wiersza tablicy 3x1
 local function wypiszWiersz(nrLinii, tekst, jestNaglowkiem)
     if not display or nrLinii < 1 or nrLinii > wysokosc then return end
 
@@ -106,7 +100,7 @@ local function wyczyscTablice()
 end
 
 --------------------------------------------------------------------------------
---                STAN TABLICY I PRZEWIJANIE DŁUGICH NAZW                     --
+--               DISPLAY STATE & SMOOTH MARQUEE SCROLLING                     --
 --------------------------------------------------------------------------------
 local historiaPrzejazdow = {}
 local trybManualny = false
@@ -117,20 +111,17 @@ local function odswiezTablice()
 
     local czasGry = textutils.formatTime(os.time(), true)
     
-    -- Nagłówek elektroniczny dla 3x1: np. | ODJAZDY [14:35] |
     local naglowek = string.format(" %s [%s] ", TYTUL_TABLICY, czasGry)
     local pad = math.max(0, math.floor((szerokosc - #naglowek) / 2))
     local pelnyNaglowek = string.rep(" ", pad) .. naglowek .. string.rep(" ", szerokosc - #naglowek - pad)
     
     wypiszWiersz(1, pelnyNaglowek, true)
 
-    -- Wiersze 2..wysokosc: Lista odjazdów
     for i = 2, wysokosc do
         local wpis = historiaPrzejazdow[i - 1]
         if wpis then
             local surowyTekst = string.format("%s %s", wpis.czas, wpis.punkt)
             
-            -- Płynny przewijany tekst dla nazw dłuższych niż szerokość ekranu 3x1
             local wyswietlany = surowyTekst
             if #surowyTekst > szerokosc then
                 local rozszerzony = surowyTekst .. "   " .. surowyTekst
@@ -148,16 +139,16 @@ local function odswiezTablice()
 end
 
 --------------------------------------------------------------------------------
---                      KONSOLA I OBSŁUGA REDNET                               --
+--                   CONSOLE & REDNET EVENT LOOP                              --
 --------------------------------------------------------------------------------
 term.clear()
 term.setCursorPos(1, 1)
 print("========================================")
-print(" ELEKTRONICZNA TABLICA 3x1 (PKP/CREATE) ")
+print(" ELECTRONIC DISPLAY BOARD 3x1 (CREATE)  ")
 print("========================================")
-print(string.format("Urządzenie: %s (%s)", dispName, dispType))
-print(string.format("Rozmiar:    %d x %d znakow", szerokosc, wysokosc))
-print("Szukanie serwera centralnego...")
+print(string.format("Device:  %s (%s)", dispName, dispType))
+print(string.format("Size:    %d x %d chars", szerokosc, wysokosc))
+print("Searching for central server...")
 
 local serverId = rednet.lookup(PROTOKOL, SERWER_HOST)
 local lastServerCheck = os.clock()
@@ -177,11 +168,10 @@ while not serverId do
     serverId = pobierzServerId()
 end
 
-print("Polaczono z centrala #" .. serverId)
+print("Connected to central server #" .. serverId)
 wyczyscTablice()
 odswiezTablice()
 
--- Rejestracja tablicy i pobranie danych początkowych
 rednet.send(serverId, {
     typ = "PING",
     nazwa = "Tablica_3x1_#" .. MOJE_ID,
@@ -190,14 +180,13 @@ rednet.send(serverId, {
 }, PROTOKOL)
 rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
 
-local zegarTimer = os.startTimer(0.5) -- Odświeżanie co 0.5s dla płynnego animowania przewijania
+local zegarTimer = os.startTimer(0.5)
 local pingTimer = os.startTimer(2.0)
 local rescanTimer = os.startTimer(5.0)
 
 while true do
     local event, p1, p2, p3 = os.pullEvent()
 
-    -- Odbiór komunikatów sieciowych
     if event == "rednet_message" and p3 == PROTOKOL then
         local senderId, msg = p1, p2
         if type(msg) == "table" then
@@ -213,7 +202,7 @@ while true do
                     table.remove(historiaPrzejazdow)
                 end
 
-                print(string.format("[%s] Odnotowano: %s", czas, etykieta))
+                print(string.format("[%s] Recorded: %s", czas, etykieta))
                 scrollOffset = 0
                 odswiezTablice()
 
@@ -223,7 +212,7 @@ while true do
                     for i = #msg.baza, math.max(1, #msg.baza - (wysokosc - 2)), -1 do
                         local r = msg.baza[i]
                         local czas = r.czas_gry or (r.timestamp and r.timestamp:sub(12,16)) or "--:--"
-                        local punkt = r.posterunek or "Trasa"
+                        local punkt = r.posterunek or "Track"
                         local pociag = r.nazwa_pociagu
                         local etykieta = (pociag and pociag ~= "") and (punkt .. "->" .. pociag) or punkt
                         table.insert(historiaPrzejazdow, { czas = czas, punkt = etykieta })
@@ -247,22 +236,22 @@ while true do
                 local txt = msg.tekst or ""
                 wypiszWiersz(nr, txt, nr == 1)
                 odswiezFlapyTablicy()
-                print(string.format("[MANUAL 3x1] Wiersz %d: %s", nr, txt))
+                print(string.format("[MANUAL 3x1] Line %d: %s", nr, txt))
 
             elseif msg.typ == "TEST_TABLICY" then
                 trybManualny = true
                 wyczyscTablice()
-                wypiszWiersz(1, string.format("TEST 3x1 [%dx%d]", szerokosc, wysokosc), true)
+                wypiszWiersz(1, string.format("3x1 TEST [%dx%d]", szerokosc, wysokosc), true)
                 for l = 2, wysokosc do
-                    wypiszWiersz(l, string.format("%d. TEST 3x1 %s", l - 1, textutils.formatTime(os.time(), true)), false)
+                    wypiszWiersz(l, string.format("%d. 3x1 TEST %s", l - 1, textutils.formatTime(os.time(), true)), false)
                 end
                 odswiezFlapyTablicy()
-                print("[TEST 3x1] Wyslano wzorzec testowy.")
+                print("[TEST 3x1] Test pattern sent to display.")
 
             elseif msg.typ == "WYCZYSC_TABLICE" then
                 trybManualny = true
                 wyczyscTablice()
-                print("[MANUAL] Wyczyszczono tablice 3x1.")
+                print("[MANUAL] 3x1 Display cleared.")
 
             elseif msg.typ == "RESET_TABLICY" then
                 trybManualny = false
@@ -270,16 +259,15 @@ while true do
                 scrollOffset = 0
                 odswiezTablice()
                 if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
-                print("[RESET 3x1] Przywrocono tryb ODJAZDY.")
+                print("[RESET 3x1] Returned to DEPARTURES mode.")
 
             elseif msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL" then
-                print("Otrzymano zdalne polecenie REBOOT!")
+                print("Received remote REBOOT command!")
                 sleep(0.5)
                 os.reboot()
             end
         end
 
-    -- Heartbeat PING
     elseif event == "timer" and p1 == pingTimer then
         serverId = pobierzServerId()
         if serverId then
@@ -292,7 +280,6 @@ while true do
         end
         pingTimer = os.startTimer(2.0)
 
-    -- Skanowanie w poszukiwaniu wyświetlacza
     elseif event == "timer" and p1 == rescanTimer then
         local nDisp, nName, nType = znajdzWyswietlacz3x1()
         if nDisp ~= display then
@@ -306,7 +293,6 @@ while true do
         pobierzServerId()
         rescanTimer = os.startTimer(5.0)
 
-    -- Zegar i animacja przewijania tekstu (Co 0.5 sekundy)
     elseif event == "timer" and p1 == zegarTimer then
         scrollOffset = scrollOffset + 1
         if not trybManualny then odswiezTablice() end
