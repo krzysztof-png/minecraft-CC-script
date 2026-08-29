@@ -209,6 +209,16 @@ local function pobierzNazweZPeryferium(name, dev)
         if ok and res == true then
             return "Train detected"
         end
+    elseif dev.isBlocked then
+        local ok, res = pcall(dev.isBlocked)
+        if ok and res == true then
+            return "Train at signal"
+        end
+    elseif dev.getState then
+        local ok, res = pcall(dev.getState)
+        if ok and (res == "RED" or res == "OCCUPIED" or res == true or res == 1) then
+            return "Train at signal"
+        end
     end
 
     return nil
@@ -217,27 +227,29 @@ end
 local function skanujPeryferia()
     local lista = {}
     for _, name in ipairs(peripheral.getNames()) do
-        if name ~= peripheral.getName(modem) then
-            local pType = peripheral.getType(name) or ""
-            local dev = peripheral.wrap(name)
+        local pType = peripheral.getType(name) or ""
+        local dev = peripheral.wrap(name)
 
-            if dev then
-                local tLower = pType:lower()
-                local jestStacja = tLower:find("station") or dev.getTrainName ~= nil or dev.getStationName ~= nil
-                local jestSygnal = tLower:find("signal") or dev.listBlockingTrainNames ~= nil or name:find("Create_Signal")
-                local jestObserver = tLower:find("observer") or tLower:find("target")
+        if dev then
+            local tLower = pType:lower()
+            local nLower = name:lower()
 
-                if config.tryb == "AUTO" then
-                    if jestStacja or jestSygnal or jestObserver then
-                        table.insert(lista, { name = name, dev = dev, type = pType })
-                    end
-                elseif config.tryb == "STACJA" and jestStacja then
-                    table.insert(lista, { name = name, dev = dev, type = pType })
-                elseif config.tryb == "SYGNAL" and jestSygnal then
-                    table.insert(lista, { name = name, dev = dev, type = pType })
-                elseif config.tryb == "OBSERVER" and jestObserver then
+            local jestStacja = tLower:find("station") or nLower:find("station") or dev.getTrainName ~= nil or dev.getStationName ~= nil
+            local jestSygnal = tLower:find("signal") or nLower:find("signal") or nLower:find("create") 
+                               or (config.mapowanieSygnalow and config.mapowanieSygnalow[name] ~= nil)
+                               or dev.listBlockingTrainNames ~= nil or dev.hasTrain ~= nil or dev.getState ~= nil or dev.isBlocked ~= nil
+            local jestObserver = tLower:find("observer") or tLower:find("target") or nLower:find("observer")
+
+            if config.tryb == "AUTO" then
+                if jestStacja or jestSygnal or jestObserver then
                     table.insert(lista, { name = name, dev = dev, type = pType })
                 end
+            elseif config.tryb == "STACJA" and jestStacja then
+                table.insert(lista, { name = name, dev = dev, type = pType })
+            elseif config.tryb == "SYGNAL" and (jestSygnal or jestStacja or (config.mapowanieSygnalow and config.mapowanieSygnalow[name] ~= nil)) then
+                table.insert(lista, { name = name, dev = dev, type = pType })
+            elseif config.tryb == "OBSERVER" and jestObserver then
+                table.insert(lista, { name = name, dev = dev, type = pType })
             end
         end
     end

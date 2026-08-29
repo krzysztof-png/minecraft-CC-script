@@ -167,7 +167,7 @@ local function InicjalizujMonitor(name, skala)
     local dev = peripheral.wrap(name)
     if dev then
         pcall(function() dev.setTextScale(skala) end)
-        local w, h = 13, 5
+        local w, h = 26, 6
         if dev.getSize then
             local ok, dw, dh = pcall(dev.getSize)
             if ok and dw and dh and dw > 0 then w, h = dw, dh end
@@ -234,7 +234,7 @@ local function rysujWyswietlaczToru(dev, wMax, hMax, nrPeronu, nrToru, bazaDanyc
     local czasGry = textutils.formatTime(os.time(), true)
     local isEN = (math.floor(scrollOffset / 16) % 2 == 1)
 
-    -- LINIA 1: NAGŁÓWEK TORU (DUŻE DUŻE LITERY)
+    -- LINIA 1: NAGŁÓWEK TORU
     local txtP = isEN and "P" or "PERON"
     local txtT = isEN and "T" or "TOR"
     local naglowek = string.format(" %s %s %s %s ", txtP, nrPeronu, txtT, nrToru)
@@ -304,12 +304,13 @@ end
 term.clear()
 term.setCursorPos(1, 1)
 print("========================================")
-print("  STEROWNIK ELEKTRONICZNA 3x1 (DUZE)    ")
+print("  STEROWNIK ELEKTRONICZNA 3x1 (2 TOR)   ")
 print("========================================")
-print(string.format("Stacja: %s | Peron: %s | Skala: %s", config.stacja, config.peron, tostring(config.skalaTekstu or 1.0)))
+print(string.format("Stacja: %s | Peron: %s | Skala: %s", config.stacja, config.peron, tostring(config.skalaTekstu or 0.5)))
 print(string.format("LEWY TOR %s:  %s (%dx%d)", config.torLewy, nameLewy, wLewy, hLewy))
 print(string.format("PRAWY TOR %s: %s (%dx%d)", config.torPrawy, namePrawy, wPrawy, hPrawy))
 print(string.format("Audio TTS:   %s", tts and "NATIVE ENGLISH TTS" or "Gong CC"))
+print("Nacisnij [S] aby ZAMIENIC STRONY monitorow (Lewy <-> Prawy)")
 print("Nacisnij [C] aby zmienic konfiguracje / skale napisow.")
 print("Laczenie z centrala...")
 
@@ -361,13 +362,13 @@ while true do
                 local opoznienie = msg.opoznienie or 0
                 local wykrytyTor = tostring(msg.tor or msg.track or "")
 
-                if wykrytyTor == tostring(config.torLewy) or wykrytyTor == "" then
+                if wykrytyTor == tostring(config.torLewy) or (wykrytyTor == "" and config.torLewy == "1") then
                     table.insert(bazaLewy, 1, { czas = czas, punkt = punkt, pociag = pociag, opoznienie = opoznienie })
                     if #bazaLewy > 5 then table.remove(bazaLewy) end
                 end
 
-                if wykrytyTor == tostring(config.torPrawy) or wykrytyTor == "" then
-                    table.insert(bazaPrawy, 1, { czas = czas, punkt = pociag or punkt, pociag = pociag, opoznienie = opoznienie })
+                if wykrytyTor == tostring(config.torPrawy) or (wykrytyTor == "" and config.torPrawy == "2") then
+                    table.insert(bazaPrawy, 1, { czas = czas, punkt = punkt, pociag = pociag, opoznienie = opoznienie })
                     if #bazaPrawy > 5 then table.remove(bazaPrawy) end
                 end
 
@@ -392,10 +393,10 @@ while true do
                         local opoznienie = r.opoznienie or 0
                         local torR = tostring(r.tor or "")
 
-                        if #bazaLewy < 5 and (torR == tostring(config.torLewy) or torR == "") then
+                        if #bazaLewy < 5 and (torR == tostring(config.torLewy) or (torR == "" and config.torLewy == "1")) then
                             table.insert(bazaLewy, { czas = czas, punkt = punkt, pociag = pociag, opoznienie = opoznienie })
                         end
-                        if #bazaPrawy < 5 and (torR == tostring(config.torPrawy) or torR == "") then
+                        if #bazaPrawy < 5 and (torR == tostring(config.torPrawy) or (torR == "" and config.torPrawy == "2")) then
                             table.insert(bazaPrawy, { czas = czas, punkt = punkt, pociag = pociag, opoznienie = opoznienie })
                         end
                     end
@@ -453,6 +454,23 @@ while true do
                 end
             end
         end
+
+    elseif event == "key" and p1 == keys.s then
+        -- Natychmiastowa zamiana monitorów miejscami
+        local tmpMon = config.monLewy
+        config.monLewy = config.monPrawy
+        config.monPrawy = tmpMon
+
+        zapiszConfig(config)
+
+        dispLewy, nameLewy, wLewy, hLewy = InicjalizujMonitor(config.monLewy, config.skalaTekstu)
+        dispPrawy, namePrawy, wPrawy, hPrawy = InicjalizujMonitor(config.monPrawy, config.skalaTekstu)
+
+        wyczyscMonitor(dispLewy, wLewy, hLewy)
+        if dispPrawy ~= dispLewy then wyczyscMonitor(dispPrawy, wPrawy, hPrawy) end
+        odswiezObuMonitorow()
+
+        print("\n[OK] Zamieniono strony monitorow miejscami (Lewy <-> Prawy)!")
 
     elseif event == "key" and p1 == keys.c then
         config = kreatorKonfiguracji()
