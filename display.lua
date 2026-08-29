@@ -5,12 +5,25 @@ local PROTOKOL      = "kolej_net"
 local SERWER_HOST   = "centrala_glowna"
 local TYTUL_TABLICY = "DEPARTURES"
 
--- 1. Modem Initialization
+-- 1. Modem Initialization & Station Speaker
 local modem = peripheral.find("modem")
 if not modem then
     error("Error: Wireless or Ender modem not found!")
 end
 rednet.open(peripheral.getName(modem))
+
+local speaker = peripheral.find("speaker")
+
+local function zagrajGongDworcowy()
+    if not speaker then return end
+    pcall(function()
+        speaker.playNote("chime", 1.0, 7)
+        sleep(0.18)
+        speaker.playNote("chime", 1.0, 12)
+        sleep(0.18)
+        speaker.playNote("chime", 1.0, 16)
+    end)
+end
 
 -- 2. Peripheral Discovery (Display Link / Display Board / Monitor)
 local function znajdzWyswietlacz()
@@ -44,7 +57,6 @@ end
 
 local szerokosc, wysokosc = pobierzWymiary()
 
--- Update Create display board buffer / flaps (display.update())
 local function odswiezFlapyTablicy()
     if not display then return end
     if display.update then pcall(display.update) end
@@ -53,7 +65,6 @@ local function odswiezFlapyTablicy()
     if display.updateBoard then pcall(display.updateBoard) end
 end
 
--- Write single line without immediate update()
 local function wypiszWierszBezUpdate(nrLinii, tekst)
     if not display or nrLinii < 1 or nrLinii > wysokosc then return end
 
@@ -69,13 +80,11 @@ local function wypiszWierszBezUpdate(nrLinii, tekst)
         end)
     end
 
-    -- 1. setCursorPos + write (Create Display Link standard)
     if display.setCursorPos and display.write then
         pcall(display.setCursorPos, 1, nrLinii)
         pcall(display.write, sformatowany)
     end
 
-    -- 2. setLine (1-indexed and 0-indexed fallback)
     if display.setLine then
         local ok = pcall(display.setLine, nrLinii, sformatowany)
         if not ok and (nrLinii - 1) >= 0 then
@@ -83,7 +92,6 @@ local function wypiszWierszBezUpdate(nrLinii, tekst)
         end
     end
 
-    -- 3. setRow
     if display.setRow then
         local ok = pcall(display.setRow, nrLinii, sformatowany)
         if not ok and (nrLinii - 1) >= 0 then
@@ -92,7 +100,6 @@ local function wypiszWierszBezUpdate(nrLinii, tekst)
     end
 end
 
--- Write line with immediate update()
 local function wypiszWiersz(nrLinii, tekst)
     wypiszWierszBezUpdate(nrLinii, tekst)
     odswiezFlapyTablicy()
@@ -110,6 +117,7 @@ end
 
 local historiaPrzejazdow = {}
 local trybManualny = false
+local ticks = 0
 
 local function odswiezTablice()
     if trybManualny then return end
@@ -119,13 +127,17 @@ local function odswiezTablice()
     end
 
     local czasGry = textutils.formatTime(os.time(), true)
-    local naglowek = string.format("%s [%s]", TYTUL_TABLICY, czasGry)
+    local isEN = (math.floor(ticks / 8) % 2 == 1)
+    local tytulHeader = isEN and "DEPARTURES" or "ODJAZDY"
+    local naglowek = string.format("%s [%s]", tytulHeader, czasGry)
     wypiszWierszBezUpdate(1, naglowek)
 
     for i = 2, wysokosc do
         local wpis = historiaPrzejazdow[i - 1]
         if wpis then
-            wypiszWierszBezUpdate(i, string.format("%s %s", wpis.czas, wpis.punkt))
+            local opozn = tonumber(wpis.opoznienie) or 0
+            local opoznTag = (opozn > 0) and string.format(" (+%dm)", opozn) or ""
+            wypiszWierszBezUpdate(i, string.format("%s %s%s", wpis.czas, wpis.punkt, opoznTag))
         else
             wypiszWierszBezUpdate(i, "")
         end
@@ -140,6 +152,7 @@ term.setCursorPos(1, 1)
 print("========================================")
 print("      CREATE DISPLAY CONTROLLER         ")
 print("========================================")
+print(string.format("Speaker:         %s", speaker and "ACTIVE (Station Chime)" or "None"))
 print(string.format("Detected Device: %s (%s)", dispName or "Native", dispType or "Terminal"))
 print(string.format("Board Size:      %d x %d (chars x rows)", szerokosc, wysokosc))
 print("Searching for central server...")
@@ -166,7 +179,6 @@ print("Connected to central server #" .. serverId)
 wyczyscTablice()
 odswiezTablice()
 
--- Register display and download initial train database
 rednet.send(serverId, {
     typ = "PING",
     nazwa = "Tablica_" .. os.getComputerID(),
@@ -182,7 +194,6 @@ local rescanTimer = os.startTimer(5)
 while true do
     local event, p1, p2, p3 = os.pullEvent()
 
-    -- Rednet network messages
     if event == "rednet_message" and p3 == PROTOKOL then
         local senderId, msg = p1, p2
         if type(msg) == "table" then
@@ -191,12 +202,15 @@ while true do
                 local czas = msg.czas or textutils.formatTime(os.time(), true)
                 local punkt = msg.nazwa or msg.punkt or ("KM_" .. senderId)
                 local pociag = msg.pociag
+                local opoznienie = msg.opoznienie or 0
                 local etykieta = (pociag and pociag ~= "") and (punkt .. " -> " .. pociag) or punkt
 
-                table.insert(historiaPrzejazdow, 1, { czas = czas, punkt = etykieta })
+                table.insert(historiaPrzejazdow, 1, { czas = czas, punkt = etykieta, opoznienie = opoznienie })
                 if #historiaPrzejazdow > (wysokosc - 1) then
                     table.remove(historiaPrzejazdow)
                 end
+
+                zagrajGongDworcowy()
 
                 print(string.format("[%s] Recorded: %s", czas, etykieta))
                 odswiezTablice()
@@ -209,8 +223,9 @@ while true do
                         local czas = r.czas_gry or (r.timestamp and r.timestamp:sub(12,16)) or "--:--"
                         local punkt = r.posterunek or "Track"
                         local pociag = r.nazwa_pociagu
+                        local opoznienie = r.opoznienie or 0
                         local etykieta = (pociag and pociag ~= "") and (punkt .. " -> " .. pociag) or punkt
-                        table.insert(historiaPrzejazdow, { czas = czas, punkt = etykieta })
+                        table.insert(historiaPrzejazdow, { czas = czas, punkt = etykieta, opoznienie = opoznienie })
                     end
                     odswiezTablice()
                 end
@@ -239,7 +254,7 @@ while true do
                     wypiszWierszBezUpdate(l, string.format("%d. %s TEST", l - 1, textutils.formatTime(os.time(), true)))
                 end
                 odswiezFlapyTablicy()
-                print("[TEST] Test pattern sent to display.")
+                zagrajGongDworcowy()
 
             elseif msg.typ == "WYCZYSC_TABLICE" then
                 trybManualny = true
@@ -251,7 +266,6 @@ while true do
                 wyczyscTablice()
                 odswiezTablice()
                 if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
-                print("[RESET] Returned to DEPARTURES mode.")
 
             elseif msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL" then
                 print("Received remote REBOOT command!")
@@ -260,7 +274,6 @@ while true do
             end
         end
 
-    -- Heartbeat PING to central server
     elseif event == "timer" and p1 == pingTimer then
         serverId = pobierzServerId()
         if serverId then
@@ -273,7 +286,6 @@ while true do
         end
         pingTimer = os.startTimer(2)
 
-    -- Periodic display peripheral re-scan
     elseif event == "timer" and p1 == rescanTimer then
         local nowyDisp, nName, nType = znajdzWyswietlacz()
         if nowyDisp ~= display then
@@ -287,8 +299,8 @@ while true do
         pobierzServerId()
         rescanTimer = os.startTimer(5)
 
-    -- Clock update timer
     elseif event == "timer" and p1 == zegarTimer then
+        ticks = ticks + 1
         if not trybManualny then odswiezTablice() end
         zegarTimer = os.startTimer(2)
     end

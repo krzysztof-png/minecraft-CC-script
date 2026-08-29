@@ -259,8 +259,10 @@ while true do
             elseif msg.typ == "PRZEJAZD_POCIAGU" then
                 local punkt = msg.nazwa or ("ID #" .. senderId)
                 local pociagNazwa = msg.pociag or "Nieznany pociag"
+                local opoznienie = tonumber(msg.opoznienie) or 0
+                local opoznienieStr = (opoznienie > 0) and string.format(" (+%d min)", opoznienie) or ""
                 
-                dodajLog(string.format("%s: %s", punkt, pociagNazwa), "PRZEJAZD", { punkt = punkt, pociag = pociagNazwa })
+                dodajLog(string.format("%s: %s%s", punkt, pociagNazwa, opoznienieStr), "PRZEJAZD", { punkt = punkt, pociag = pociagNazwa, opoznienie = opoznienie })
 
                 -- Zapis do bazy danych
                 local rekord = {
@@ -270,7 +272,8 @@ while true do
                     posterunek = punkt,
                     posterunek_id = senderId,
                     tryb_detekcji = msg.tryb or "OBSERVER",
-                    nazwa_pociagu = pociagNazwa
+                    nazwa_pociagu = pociagNazwa,
+                    opoznienie = opoznienie
                 }
                 zapiszPrzejazdDoBazy(rekord)
                 odswiezInterfejs()
