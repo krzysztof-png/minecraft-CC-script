@@ -75,8 +75,9 @@ local function wybierzRole()
     print(" [2] Klient / Posterunek (client.lua)")
     print(" [3] Mobilny Terminal Logow (log.lua)")
     print(" [4] Tablica Display Board (display.lua)")
+    print(" [5] Tablica Elektryczna 3x1 (electric_display.lua)")
     print("----------------------------------------")
-    write("Twoj wybor [1-4]: ")
+    write("Twoj wybor [1-5]: ")
 
     local rola = nil
     while not rola do
@@ -85,6 +86,7 @@ local function wybierzRole()
         if char == "2" then rola = "client" end
         if char == "3" then rola = "log" end
         if char == "4" then rola = "display" end
+        if char == "5" then rola = "electric_display" end
     end
 
     local cfg = { rola = rola }
