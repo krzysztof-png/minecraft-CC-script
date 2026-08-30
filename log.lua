@@ -652,31 +652,31 @@ while true do
 
             -- 4. Dotykowe akcje na Karcie 5 (Reboot Manager)
             elseif aktywnaKarta == 5 then
-                if y == 4 then -- [1] Reboot CAŁEJ sieci
+                if y == 5 then -- [1] Reboot CAŁEJ sieci
                     rebootTargetTyp = "ALL"
                     trybRebootConfirm = true
                     odswiezEkran(serverId)
-                elseif y == 5 then -- [2] Reboot SERWERA
+                elseif y == 6 then -- [2] Reboot SERWERA
                     rebootTargetTyp = "SERVER"
                     trybRebootConfirm = true
                     odswiezEkran(serverId)
-                elseif y == 6 then -- [3] Reboot TABLIC
+                elseif y == 7 then -- [3] Reboot TABLIC
                     rebootTargetTyp = "DISPLAY"
                     trybRebootConfirm = true
                     odswiezEkran(serverId)
-                elseif y == 7 then -- [4] Reboot POSTERUNKOW
+                elseif y == 8 then -- [4] Reboot POSTERUNKOW
                     rebootTargetTyp = "CLIENT"
                     trybRebootConfirm = true
                     odswiezEkran(serverId)
-                elseif y == 8 then -- [5] Reboot WYBRANEGO ID
+                elseif y == 9 then -- [5] Reboot WYBRANEGO ID
                     restartWybranegoIDModal(serverId)
                     odswiezEkran(serverId)
-                elseif y == 9 then -- [6] Alarm Testowy
+                elseif y == 10 then -- [6] Alarm Testowy
                     dodajWpis("Wyslano sygnal ALARM!", colors.red)
                     rednet.broadcast({ typ = "ALARM", nazwa = "Terminal_Pocket", powod = "Sygnal Alarmowy z Pocket PC" }, PROTOKOL)
                     if serverId then rednet.send(serverId, { typ = "ALARM", nazwa = "Terminal_Pocket", powod = "Sygnal Alarmowy" }, PROTOKOL) end
                     odswiezEkran(serverId)
-                elseif y == 10 then -- [7] Kreator Stacji SRK
+                elseif y == 11 then -- [7] Kreator Stacji SRK
                     term.clear()
                     term.setCursorPos(1, 1)
                     term.setTextColor(colors.white)
