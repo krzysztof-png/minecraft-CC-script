@@ -1,5 +1,6 @@
 --------------------------------------------------------------------------------
---          KREATOR MULTI-STACJI W SIECI (station_wizard.lua)                  --
+--    KREATOR MULTI-STACJI (ADAPTACYJNY DLA POCKET PC 26 ZNAKÓW)             --
+--                       station_wizard.lua                                   --
 --------------------------------------------------------------------------------
 local CONFIG_FILE = "station_layout.json"
 local PROTOKOL    = "kolej_net"
@@ -45,41 +46,45 @@ local function uruchomKreatorStacji(istniejacyID)
     term.clear()
     term.setCursorPos(1, 1)
     setC(colors.yellow, colors.blue)
-    print("========================================")
-    print("   KREATOR MULTI-STACJI DLA SIECI SRK   ")
-    print("========================================")
+
+    print("==========================")
+    print("   KREATOR MULTI-STACJI   ")
+    print("==========================")
     setC(colors.white, colors.black)
 
     -- KROK 1: NAZWA I OZNACZENIE STACJI
-    print("\n[KROK 1] IDENTYFIKACJA STACJI W SIECI")
-    write("Pełna Nazwa Stacji (np. Gdynia Główna): ")
+    print("\n[1] DANE STACJI")
+    print("Nazwa (np. Sopot):")
     setC(colors.yellow, colors.black)
+    write("> ")
+    setC(colors.white, colors.black)
     local nazwaStacji = read()
     if nazwaStacji == "" then nazwaStacji = "Stacja_" .. MOJE_ID end
-    setC(colors.white, colors.black)
 
-    write("Kod / Unikalne ID Stacji (np. GD, SP, WWA): ")
+    print("Kod ID Stacji (np. SP):")
     setC(colors.yellow, colors.black)
+    write("> ")
+    setC(colors.white, colors.black)
     local kodStacji = read()
     if kodStacji == "" then kodStacji = "ST_" .. MOJE_ID end
-    setC(colors.white, colors.black)
 
     local stacjaID = istniejacyID or kodStacji
 
     -- KROK 2: LICZBA PERONÓW
-    print("\n[KROK 2] PERONY STACJI " .. kodStacji)
-    write("Ilosc Peronow na tej stacji [np. 2]: ")
+    print("\n[2] PERONY")
+    print("Ilosc peronow [np. 2]:")
     setC(colors.yellow, colors.black)
-    local iloscPeronow = tonumber(read()) or 1
+    write("> ")
     setC(colors.white, colors.black)
+    local iloscPeronow = tonumber(read()) or 1
 
     local peronyMap = {}
     for p = 1, iloscPeronow do
-        print(string.format(" Peron #%d -> Wpisz numery torow (np. 1,2):", p))
-        write("  Tory przy Peronie " .. p .. ": ")
+        print(string.format("Peron #%d tory (np. 1,2):", p))
         setC(colors.yellow, colors.black)
-        local toryInput = read()
+        write("> ")
         setC(colors.white, colors.black)
+        local toryInput = read()
         
         local toryLista = {}
         for tNum in toryInput:gmatch("%d+") do
@@ -90,25 +95,25 @@ local function uruchomKreatorStacji(istniejacyID)
     end
 
     -- KROK 3: TORY I TORY PRZEJAZDOWE
-    print("\n[KROK 3] TORY I TORY PRZEJAZDOWE")
-    write("Calkowita ilosc torow na tej stacji [np. 4]: ")
+    print("\n[3] TORY I SYGNAŁY")
+    print("Ilosc torow [np. 4]:")
     setC(colors.yellow, colors.black)
-    local iloscTorow = tonumber(read()) or 2
+    write("> ")
     setC(colors.white, colors.black)
+    local iloscTorow = tonumber(read()) or 2
 
     local wykryteSygnaly = pobierzSygnalyWiedNet()
     local toryStructure = {}
 
-    print(string.format("\nWykryto %d sygnalow/peryferii na kablu.", #wykryteSygnaly))
+    print(string.format("Sygnaly w sieci: %d", #wykryteSygnaly))
 
     for t = 1, iloscTorow do
         local tStr = tostring(t)
-        print(string.format("\n--- KONFIGURACJA TORU NR %s (STACJA %s) ---", tStr, kodStacji))
-        
-        print(string.format("Typ toru %s:", tStr))
-        print(" [1] Tor Peronowy (Zatrzynanie pociagow osobowych)")
-        print(" [2] Tor Przejazdowy (Bez zatrzymania / Expres / Towarowy)")
-        write(" Wybór [1-2, domyslnie 1]: ")
+        print(string.format("\n- TOR NR %s -", tStr))
+        print("Typ: [1]Peron [2]Przejazd")
+        setC(colors.yellow, colors.black)
+        write("> Wybór: ")
+        setC(colors.white, colors.black)
         
         local typTor = "PERONOWY"
         local chTyp = read()
@@ -116,11 +121,13 @@ local function uruchomKreatorStacji(istniejacyID)
 
         local przypisanySygnal = wykryteSygnaly[t] or ("Create_Signal_" .. (t - 1))
         if #wykryteSygnaly > 0 then
-            print(" Wybierz sygnal Create podpiety do Toru " .. tStr .. ":")
+            print("Sygnal dla Toru " .. tStr .. ":")
             for idx, sName in ipairs(wykryteSygnaly) do
-                print(string.format("   [%d] %s", idx, sName))
+                print(string.format(" [%d] %s", idx, sName:sub(1, 18)))
             end
-            write(string.format(" Wybór [1-%d, domyślnie %d]: ", #wykryteSygnaly, t))
+            setC(colors.yellow, colors.black)
+            write("> Wybór: ")
+            setC(colors.white, colors.black)
             local sIdx = tonumber(read()) or t
             przypisanySygnal = wykryteSygnaly[sIdx] or przypisanySygnal
         end
@@ -140,7 +147,7 @@ local function uruchomKreatorStacji(istniejacyID)
         }
 
         setC(colors.lime, colors.black)
-        print(string.format(" [OK] Tor %s (%s) -> Peron %s | Sygnal: %s", tStr, typTor, nPeronu, przypisanySygnal))
+        print(string.format("[OK] Tor %s: %s", tStr, typTor:sub(1,10)))
         setC(colors.white, colors.black)
     end
 
@@ -170,11 +177,11 @@ local function uruchomKreatorStacji(istniejacyID)
     end
 
     setC(colors.yellow, colors.blue)
-    print("\n========================================")
-    print("   ZAPISANO STACJĘ " .. stacjaID .. " NA SERWERZE! ")
-    print("========================================")
+    print("\n==========================")
+    print("  ZAPISANO STACJĘ " .. stacjaID:sub(1,8) .. " ")
+    print("==========================")
     setC(colors.white, colors.black)
-    sleep(1.5)
+    sleep(1.2)
     return stacjaData
 end
 
@@ -182,16 +189,19 @@ end
 term.clear()
 term.setCursorPos(1, 1)
 setC(colors.yellow, colors.blue)
-print("========================================")
-print("  SIECIOWY ZARZĄDCA MULTI-STACJI (SRK)  ")
-print("========================================")
+
+print("==========================")
+print("  ZARZADCA MULTI-STACJI   ")
+print("==========================")
 setC(colors.white, colors.black)
 
-print("\nWybierz akcje w sieci kolejowej:")
-print(" [1] Dodaj / Skonfiguruj nowa stacje")
-print(" [2] Pobierz stacje z Serwera Centralnego")
-print(" [3] Wywietl zarejestrowane stacje w bazie")
-write("Wybór [1-3, domyslnie 1]: ")
+print("\nWybierz akcje:")
+print(" [1] Nowa/edytuj stacje")
+print(" [2] Pobierz z Serwera")
+print(" [3] Wyswietl stacje")
+setC(colors.yellow, colors.black)
+write("> Wybór [1-3]: ")
+setC(colors.white, colors.black)
 
 local choice = read()
 if choice == "2" or choice == "3" then
@@ -199,7 +209,7 @@ if choice == "2" or choice == "3" then
     if modem then pcall(function() rednet.open(peripheral.getName(modem)) end) end
     local serverId = rednet.lookup(PROTOKOL, SERWER_HOST)
     if serverId then
-        print("Pobieranie stacji z serwera #" .. serverId .. "...")
+        print("Pobieranie z serwera...")
         rednet.send(serverId, { typ = "POBIERZ_STACJE" }, PROTOKOL)
         sleep(1.0)
     end
@@ -207,7 +217,8 @@ if choice == "2" or choice == "3" then
         local f = fs.open(CONFIG_FILE, "r")
         local data = textutils.unserializeJSON(f.readAll())
         f.close()
-        print("\nAktualna Stacja: " .. (data.nazwa or "Unknown") .. " (ID: " .. (data.id or "ST") .. ")")
+        print("\nStacja: " .. (data.nazwa or "Unknown") .. " [" .. (data.id or "ST") .. "]")
+        sleep(1.5)
     end
 else
     uruchomKreatorStacji()

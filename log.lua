@@ -488,8 +488,17 @@ while true do
                 odswiezEkran(serverId)
             elseif p1 == keys.seven or p1 == keys.numPad7 then
                 if aktywnaKarta == 5 then
+                    term.clear()
+                    term.setCursorPos(1, 1)
+                    term.setTextColor(colors.white)
+                    term.setBackgroundColor(colors.black)
                     if fs.exists("station_wizard.lua") then
                         shell.run("station_wizard.lua")
+                    end
+                    local tmr = os.startTimer(0.1)
+                    while true do
+                        local ev, idT = os.pullEvent()
+                        if ev == "timer" and idT == tmr then break end
                     end
                 end
                 odswiezEkran(serverId)
@@ -668,8 +677,17 @@ while true do
                     if serverId then rednet.send(serverId, { typ = "ALARM", nazwa = "Terminal_Pocket", powod = "Sygnal Alarmowy" }, PROTOKOL) end
                     odswiezEkran(serverId)
                 elseif y == 10 then -- [7] Kreator Stacji SRK
+                    term.clear()
+                    term.setCursorPos(1, 1)
+                    term.setTextColor(colors.white)
+                    term.setBackgroundColor(colors.black)
                     if fs.exists("station_wizard.lua") then
                         shell.run("station_wizard.lua")
+                    end
+                    local tmr = os.startTimer(0.1)
+                    while true do
+                        local ev, idT = os.pullEvent()
+                        if ev == "timer" and idT == tmr then break end
                     end
                     odswiezEkran(serverId)
                 end
