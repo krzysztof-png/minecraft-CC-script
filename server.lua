@@ -260,9 +260,11 @@ while true do
                 local punkt = msg.nazwa or ("ID #" .. senderId)
                 local pociagNazwa = msg.pociag or "Nieznany pociag"
                 local opoznienie = tonumber(msg.opoznienie) or 0
+                local stacjaId = msg.idStacji or "ST"
+                local torNum = msg.tor or "1"
                 local opoznienieStr = (opoznienie > 0) and string.format(" (+%d min)", opoznienie) or ""
                 
-                dodajLog(string.format("%s: %s%s", punkt, pociagNazwa, opoznienieStr), "PRZEJAZD", { punkt = punkt, pociag = pociagNazwa, opoznienie = opoznienie })
+                dodajLog(string.format("[%s-T%s] %s: %s%s", stacjaId, torNum, punkt, pociagNazwa, opoznienieStr), "PRZEJAZD", { punkt = punkt, pociag = pociagNazwa, stacja = stacjaId, tor = torNum, opoznienie = opoznienie })
 
                 -- Zapis do bazy danych
                 local rekord = {
@@ -271,11 +273,14 @@ while true do
                     czas_gry = msg.czas or textutils.formatTime(os.time(), true),
                     posterunek = punkt,
                     posterunek_id = senderId,
+                    idStacji = stacjaId,
+                    tor = torNum,
                     tryb_detekcji = msg.tryb or "OBSERVER",
                     nazwa_pociagu = pociagNazwa,
                     opoznienie = opoznienie
                 }
                 zapiszPrzejazdDoBazy(rekord)
+                rednet.broadcast({ typ = "PRZEJAZD_POCIAGU", nazwa = punkt, pociag = pociagNazwa, idStacji = stacjaId, tor = torNum, opoznienie = opoznienie, czas = msg.czas }, PROTOKOL)
                 odswiezInterfejs()
 
             -- Pobieranie danych
@@ -302,6 +307,31 @@ while true do
             elseif msg.typ == "ALARM" then
                 dodajLog("ALARM: " .. (msg.nazwa or senderId) .. " -> " .. tostring(msg.powod), "ALARM")
                 odswiezInterfejs()
+
+            elseif msg.typ == "ZAPISZ_STACJE" and msg.stacja then
+                local sId = msg.idStacji or msg.stacja.id or msg.stacja.kod or msg.stacja.nazwa
+                local stacje = wczytajWszystkieStacje()
+                stacje[sId] = msg.stacja
+                msg.stacja.id = sId
+
+                local f = fs.open("network_stations.json", "w")
+                f.write(textutils.serializeJSON(stacje))
+                f.close()
+
+                dodajLog("Multi-Stacja Zapisano: " .. (msg.stacja.nazwa or sId), "SYSTEM")
+                rednet.broadcast({ typ = "SYNC_STACJA", idStacji = sId, stacja = msg.stacja, stacje = stacje }, PROTOKOL)
+                odswiezInterfejs()
+
+            elseif msg.typ == "POBIERZ_STACJE" then
+                local stacje = {}
+                if fs.exists("network_stations.json") then
+                    local f = fs.open("network_stations.json", "r")
+                    stacje = textutils.unserializeJSON(f.readAll()) or {}
+                    f.close()
+                end
+                local sId = msg.idStacji
+                local targetStacja = sId and stacje[sId] or nil
+                rednet.send(senderId, { typ = "SYNC_STACJA", idStacji = sId, stacja = targetStacja, stacje = stacje }, PROTOKOL)
 
             elseif msg.typ == "ZAPYTANIE_TABLICA" or msg.typ == "USTAW_TEKST_TABLICY" or msg.typ == "TEST_TABLICY" or msg.typ == "WYCZYSC_TABLICE" or msg.typ == "RESET_TABLICY" then
                 rednet.broadcast(msg, PROTOKOL)

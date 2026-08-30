@@ -128,11 +128,19 @@ else
     end
 end
 
--- Download TTS module for display roles
-if config.rola:find("display") then
+-- Download TTS, Audio Player & Station Wizard modules for display and client roles
+if config.rola:find("display") or config.rola == "client" or config.rola == "server" then
     local zdalnyTTS = pobierzZGitHuba("tts.lua")
     if zdalnyTTS and #zdalnyTTS > 0 then
         zapiszPlikLokalny("tts.lua", zdalnyTTS)
+    end
+    local zdalnyAudio = pobierzZGitHuba("audio_player.lua")
+    if zdalnyAudio and #zdalnyAudio > 0 then
+        zapiszPlikLokalny("audio_player.lua", zdalnyAudio)
+    end
+    local zdalnyWizard = pobierzZGitHuba("station_wizard.lua")
+    if zdalnyWizard and #zdalnyWizard > 0 then
+        zapiszPlikLokalny("station_wizard.lua", zdalnyWizard)
     end
 end
 

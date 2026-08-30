@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
---    DWUSTRONNY WYŚWIETLACZ 3x1 (DUŻE NAPISY / LARGE TEXT SCALE 1.0)          --
+--    DWUSTRONNY WYŚWIETLACZ 3x1 (Z INTEGRACJĄ KREATORA STACJI)               --
 --                       electric_display.lua                                 --
 --------------------------------------------------------------------------------
 local CONFIG_FILE = "electric_config.json"
@@ -8,6 +8,7 @@ local SERWER_HOST = "centrala_glowna"
 local MOJE_ID     = os.getComputerID()
 
 local tts = fs.exists("tts.lua") and dofile("tts.lua") or nil
+local stationWizard = fs.exists("station_wizard.lua") and dofile("station_wizard.lua") or nil
 
 -- 1. Inicjalizacja modemu oraz głośnika
 local modem = peripheral.find("modem")
@@ -48,9 +49,29 @@ local function zapiszConfig(cfg)
     f.close()
 end
 
+local function pobierzWszystkieNazwyPeryferii()
+    local nazwySet = {}
+    for _, name in ipairs(peripheral.getNames()) do
+        nazwySet[name] = true
+        local dev = peripheral.wrap(name)
+        if dev and dev.getNamesRemote then
+            local ok, remotes = pcall(dev.getNamesRemote)
+            if ok and remotes and type(remotes) == "table" then
+                for _, rName in ipairs(remotes) do
+                    nazwySet[rName] = true
+                end
+            end
+        end
+    end
+    local lista = {}
+    for n, _ in pairs(nazwySet) do table.insert(lista, n) end
+    table.sort(lista)
+    return lista
+end
+
 local function wyszukajDostepneMonitory()
     local lista = {}
-    for _, name in ipairs(peripheral.getNames()) do
+    for _, name in ipairs(pobierzWszystkieNazwyPeryferii()) do
         if name ~= peripheral.getName(modem) then
             local t = (peripheral.getType(name) or ""):lower()
             if t:find("monitor") or (peripheral.wrap(name).write and not t:find("computer") and not t:find("drive")) then
@@ -71,12 +92,19 @@ local function kreatorKonfiguracji()
     print("========================================")
     term.setBackgroundColor(colors.black)
 
-    print("\nNazwa Stacji (np. Centralna):")
-    term.setTextColor(colors.yellow)
-    write("> ")
-    term.setTextColor(colors.white)
-    local stacja = read()
-    if stacja == "" then stacja = "Stacja_" .. MOJE_ID end
+    local stacjaData = stationWizard and stationWizard.wczytaj and stationWizard.wczytaj() or nil
+
+    local stacja = (stacjaData and stacjaData.nazwa) or "Centralna"
+    if not stacjaData then
+        print("\nNazwa Stacji (np. Centralna):")
+        term.setTextColor(colors.yellow)
+        write("> ")
+        term.setTextColor(colors.white)
+        stacja = read()
+        if stacja == "" then stacja = "Stacja_" .. MOJE_ID end
+    else
+        print("\nWczytano Stacje: " .. stacja .. " (Kod: " .. (stacjaData.kod or "ST") .. ")")
+    end
 
     print("\nNumer Peronu (np. 1, 2...):")
     term.setTextColor(colors.yellow)
@@ -109,7 +137,7 @@ local function kreatorKonfiguracji()
         end
     end
 
-    print("\nWybierz nazwe/tor dla LEWEJ STRONY (np. Tor 1):")
+    print("\nWybierz nazwe/tor dla LEWEJ STRONY (np. Tor 1, 2...):")
     term.setTextColor(colors.yellow)
     write("Numer toru lewego [np. 1]: ")
     term.setTextColor(colors.white)
@@ -123,7 +151,7 @@ local function kreatorKonfiguracji()
         monLewyName = monitory[idxL] or monitory[1]
     end
 
-    print("\nWybierz nazwe/tor dla PRAWEJ STRONY (np. Tor 2):")
+    print("\nWybierz nazwe/tor dla PRAWEJ STRONY (np. Tor 2, 3...):")
     term.setTextColor(colors.yellow)
     write("Numer toru prawego [np. 2]: ")
     term.setTextColor(colors.white)
@@ -404,6 +432,14 @@ while true do
                     odswiezObuMonitorow()
                 end
 
+            elseif msg.typ == "SYNC_STACJA" and msg.stacja then
+                if msg.stacja.nazwa then
+                    config.stacja = msg.stacja.nazwa
+                    zapiszConfig(config)
+                    odswiezObuMonitorow()
+                    print("[SYNC] Zaktualizowano nazwe stacji: " .. config.stacja)
+                end
+
             elseif msg.typ == "ZAPYTANIE_TABLICA" then
                 rednet.send(senderId, {
                     typ = "ODPOWIEDZ_TABLICA",
@@ -456,7 +492,6 @@ while true do
         end
 
     elseif event == "key" and p1 == keys.s then
-        -- Natychmiastowa zamiana monitorów miejscami
         local tmpMon = config.monLewy
         config.monLewy = config.monPrawy
         config.monPrawy = tmpMon

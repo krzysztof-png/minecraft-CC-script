@@ -308,9 +308,10 @@ local function odswiezEkran(serverId)
         print(" [4] Reboot POSTERUNKOW")
         print(" [5] Reboot WYBRANEGO ID")
         print(" [6] Wyslij ALARM testowy")
+        print(" [7] Kreator Stacji SRK")
         print(string.rep("-", 26))
         term.setTextColor(colors.lightGray)
-        print(" Wybierz opcje [1-6]")
+        print(" Wybierz opcje [1-7]")
     end
 
     -- Okno dialogowe potwierdzenia Rebootu
@@ -483,6 +484,13 @@ while true do
                     dodajWpis("Wyslano sygnal ALARM!", colors.red)
                     rednet.broadcast({ typ = "ALARM", nazwa = "Terminal_Pocket", powod = "Sygnal Alarmowy z Pocket PC" }, PROTOKOL)
                     if serverId then rednet.send(serverId, { typ = "ALARM", nazwa = "Terminal_Pocket", powod = "Sygnal Alarmowy" }, PROTOKOL) end
+                end
+                odswiezEkran(serverId)
+            elseif p1 == keys.seven or p1 == keys.numPad7 then
+                if aktywnaKarta == 5 then
+                    if fs.exists("station_wizard.lua") then
+                        shell.run("station_wizard.lua")
+                    end
                 end
                 odswiezEkran(serverId)
             elseif p1 == keys.tab then
@@ -658,6 +666,11 @@ while true do
                     dodajWpis("Wyslano sygnal ALARM!", colors.red)
                     rednet.broadcast({ typ = "ALARM", nazwa = "Terminal_Pocket", powod = "Sygnal Alarmowy z Pocket PC" }, PROTOKOL)
                     if serverId then rednet.send(serverId, { typ = "ALARM", nazwa = "Terminal_Pocket", powod = "Sygnal Alarmowy" }, PROTOKOL) end
+                    odswiezEkran(serverId)
+                elseif y == 10 then -- [7] Kreator Stacji SRK
+                    if fs.exists("station_wizard.lua") then
+                        shell.run("station_wizard.lua")
+                    end
                     odswiezEkran(serverId)
                 end
             end
