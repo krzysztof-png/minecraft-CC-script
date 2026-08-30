@@ -22,9 +22,41 @@ local function zapiszConfig(cfg)
     f.close()
 end
 
+--------------------------------------------------------------------------------
+--    POBIERANIE WSZYSTKICH NAZW PERYFERII (BEZPOŚREDNIE + KABLOWE WIRED NET)   --
+--------------------------------------------------------------------------------
+local function pobierzWszystkieNazwyPeryferii()
+    local nazwySet = {}
+
+    -- 1. Nazwy bezpośrednie
+    for _, name in ipairs(peripheral.getNames()) do
+        nazwySet[name] = true
+    end
+
+    -- 2. Nazwy zdalne z modemów przewodowych (Wired Modem getNamesRemote)
+    for _, name in ipairs(peripheral.getNames()) do
+        local dev = peripheral.wrap(name)
+        if dev and dev.getNamesRemote then
+            local ok, remotes = pcall(dev.getNamesRemote)
+            if ok and remotes and type(remotes) == "table" then
+                for _, rName in ipairs(remotes) do
+                    nazwySet[rName] = true
+                end
+            end
+        end
+    end
+
+    local lista = {}
+    for n, _ in pairs(nazwySet) do
+        table.insert(lista, n)
+    end
+    table.sort(lista)
+    return lista
+end
+
 local function wyszukajSygnalyKolejowe()
     local lista = {}
-    for _, name in ipairs(peripheral.getNames()) do
+    for _, name in ipairs(pobierzWszystkieNazwyPeryferii()) do
         local dev = peripheral.wrap(name)
         if dev then
             local isWireless = false
@@ -136,7 +168,7 @@ end
 
 -- Inicjalizacja modemu bezprzewodowego Rednet
 local function znajdzModemBezprzewodowy()
-    for _, name in ipairs(peripheral.getNames()) do
+    for _, name in ipairs(pobierzWszystkieNazwyPeryferii()) do
         local dev = peripheral.wrap(name)
         if dev and dev.isWireless and dev.isWireless() then
             return name, dev
@@ -241,7 +273,7 @@ end
 
 local function skanujPeryferia()
     local lista = {}
-    for _, name in ipairs(peripheral.getNames()) do
+    for _, name in ipairs(pobierzWszystkieNazwyPeryferii()) do
         local dev = peripheral.wrap(name)
         if dev then
             local isWireless = false
@@ -262,7 +294,6 @@ local function skanujPeryferia()
                 elseif config.tryb == "STACJA" and (jestStacja or jestSygnal) then
                     table.insert(lista, { name = name, dev = dev, type = pType })
                 elseif config.tryb == "SYGNAL" then
-                    -- W trybie SYGNAL przyjmujemy WSZYSTKIE podłączone peryferia kablowe!
                     table.insert(lista, { name = name, dev = dev, type = pType })
                 elseif config.tryb == "OBSERVER" then
                     table.insert(lista, { name = name, dev = dev, type = pType })
