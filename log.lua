@@ -1,196 +1,232 @@
 --------------------------------------------------------------------------------
---    MOBILNY TERMINAL KOLEJOWY (POCKET PC - 5 KART + ZDALNE ZARZĄDZANIE)     --
+--                MOBILNY TERMINAL DIAGNOSTYCZNY (log.lua)                    --
+--                      ADAPTACYJNY DLA POCKET PC (26x20)                     --
 --------------------------------------------------------------------------------
-local PROTOKOL     = "kolej_net"
-local SERWER_HOST  = "centrala_glowna"
-local TIMEOUT_SEK  = 6
+local PROTOKOL    = "kolej_net"
+local SERWER_HOST = "centrala_glowna"
+local TIMEOUT_SEK = 6
 
 local modem = peripheral.find("modem")
 if not modem then
-    error("Brak modemu! Wytworz Pocket Computer z modemem.")
+    error("Blad: Nie znaleziono modemu (Wireless/Ender Modem)!")
 end
 rednet.open(peripheral.getName(modem))
 
-local aktywnaKarta = 1 -- 1: Węzły, 2: Logi, 3: Baza, 4: Tablice, 5: Zarządzanie Reboot
-local klienci = {}
 local logi = {}
+local klienci = {}
 local bazaPrzejazdow = {}
-local wykryteTablice = {} -- { [id] = { szer, wys, typDisp } }
-local MAX_LOGOW = 16
+local wykryteTablice = {}
 
--- Stan okienek potwierdzenia
+local aktywnaKarta = 1 -- 1: URZĄDZENIA, 2: TELEMETRIA, 3: BAZA, 4: TABLICE, 5: CMD
 local trybRebootConfirm = false
-local rebootTargetTyp = "ALL" -- "ALL", "SERVER", "DISPLAY", "CLIENT", "SINGLE"
+local rebootTargetTyp = nil
 local rebootSingleId = nil
 
 local function dodajWpis(tekst, kolor)
-    table.insert(logi, 1, { tekst = tekst, kolor = kolor or colors.white })
-    if #logi > MAX_LOGOW then
-        table.remove(logi)
-    end
+    local godz = textutils.formatTime(os.time(), true)
+    table.insert(logi, 1, { tekst = string.format("[%s] %s", godz, tekst), kolor = kolor or colors.white })
+    if #logi > 25 then table.remove(logi) end
 end
 
--- Rysowanie paska zakładek (5 kart na szerokość 26 znaków Pocket PC)
 local function rysujPasekKart()
     term.setCursorPos(1, 1)
-    
-    -- Karta 1: Węzły
+    local k = { "[1]WEZ", "[2]LOG", "[3]BAZ", "[4]TAB", "[5]CMD" }
+    for i = 1, 5 do
+        if i == aktywnaKarta then
+            term.setBackgroundColor(colors.blue)
+            term.setTextColor(colors.yellow)
+        else
+            term.setBackgroundColor(colors.gray)
+            term.setTextColor(colors.white)
+        end
+        write(k[i])
+    end
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.white)
+end
+
+local function odswiezEkran(serverId)
+    term.clear()
+    rysujPasekKart()
+
+    term.setCursorPos(1, 2)
+    term.setTextColor(colors.lightGray)
+    local statusSerwera = serverId and ("SRV #" .. serverId) or "LACZENIE..."
+    print(string.format("Stan: %-8s Czas: %s", statusSerwera, textutils.formatTime(os.time(), true)))
+    print(string.rep("-", 26))
+
+    -- ================= KARTA 1: URZĄDZENIA =================
     if aktywnaKarta == 1 then
-        term.setBackgroundColor(colors.blue)
+        term.setTextColor(colors.yellow)
+        print(string.format("%-4s %-12s %s", "ID", "POSTERUNEK", "STATUS"))
         term.setTextColor(colors.white)
-        term.write("[1]WEZ")
-    else
-        term.setBackgroundColor(colors.gray)
+
+        local teraz = os.clock()
+        local count = 0
+        for id, dane in pairs(klienci) do
+            count = count + 1
+            local online = (teraz - (dane.lastSeen or 0)) <= TIMEOUT_SEK
+            local numId = tonumber(id) or id
+
+            if online then
+                term.setTextColor(colors.green)
+                local statusDisplay = dane.status or "OK"
+                print(string.format("#%-3s %-12s %s", tostring(numId), (dane.nazwa or ""):sub(1,12), statusDisplay:sub(1,7)))
+            else
+                term.setTextColor(colors.red)
+                print(string.format("#%-3s %-12s OFFLINE", tostring(numId), (dane.nazwa or ""):sub(1,12)))
+            end
+        end
+
+        if count == 0 then
+            term.setTextColor(colors.gray)
+            print("\n Brak zarejestrowanych")
+            print(" wezlow w sieci.")
+        end
+
+    -- ================= KARTA 2: LOGI TELEMETRII =============
+    elseif aktywnaKarta == 2 then
+        if #logi == 0 then
+            term.setTextColor(colors.gray)
+            print("\n Brak wpisow w pamieci.")
+        else
+            for i = 1, math.min(#logi, 15) do
+                local wpis = logi[i]
+                term.setTextColor(wpis.kolor)
+                print(wpis.tekst:sub(1, 26))
+            end
+        end
+
+    -- ================= KARTA 3: BAZA POCIĄGÓW ===============
+    elseif aktywnaKarta == 3 then
+        term.setTextColor(colors.yellow)
+        print(string.format("%-5s %-11s %-8s", "CZAS", "POCIAG", "POSTER"))
+        term.setTextColor(colors.white)
+
+        if #bazaPrzejazdow == 0 then
+            term.setTextColor(colors.gray)
+            print("\n Baza przejazdow jest")
+            print(" pusta. Wcisnij [R].")
+        else
+            for i = 1, math.min(#bazaPrzejazdow, 14) do
+                local r = bazaPrzejazdow[i]
+                local czasStr = r.czas_gry or (r.timestamp and r.timestamp:sub(12,16)) or "--:--"
+                local pociagStr = (r.nazwa_pociagu or "Pociag"):sub(1,11)
+                local punktStr = (r.posterunek or "Trasa"):sub(1,8)
+                
+                term.setTextColor((r.opoznienie and r.opoznienie > 0) and colors.orange or colors.white)
+                print(string.format("%-5s %-11s %-8s", czasStr, pociagStr, punktStr))
+            end
+        end
+
+    -- ================= KARTA 4: ZARZĄDZANIE TABLICAMI ========
+    elseif aktywnaKarta == 4 then
+        term.setTextColor(colors.yellow)
+        print(" ZARZADZANIE TABLICAMI ")
+        term.setTextColor(colors.white)
+        print(" [E] Edytuj wiersz tablicy")
+        print(" [S] Skanuj tablice w sieci")
+        print(" [T] Wyslij wzorzec test")
+        print(" [C] Wyczysc tablice")
+        print(" [R] Przywroc tryb ODJAZDY")
+        print(string.rep("-", 26))
+        term.setTextColor(colors.cyan)
+        print(" TABLICE W SIECI:")
+        term.setTextColor(colors.white)
+        
+        local count = 0
+        for id, t in pairs(wykryteTablice) do
+            count = count + 1
+            print(string.format(" #%-3d %-9s %dx%d", id, (t.typDisp or "Disp"):sub(1,9), t.szer or 0, t.wys or 0))
+        end
+        if count == 0 then
+            term.setTextColor(colors.gray)
+            print(" Brak informacji o tablicy.")
+            print(" Wcisnij [S] aby skanowac.")
+        end
+
+    -- ================= KARTA 5: REBOOT MANAGER ==============
+    elseif aktywnaKarta == 5 then
+        term.setTextColor(colors.red)
+        print(" === ZDARZENIA I REBOOT ===")
+        term.setTextColor(colors.white)
+        print(" [1] Reboot CALEJ sieci")
+        print(" [2] Reboot SERWERA")
+        print(" [3] Reboot TABLIC")
+        print(" [4] Reboot POSTERUNKOW")
+        print(" [5] Reboot WYBRANEGO ID")
+        print(" [6] Wyslij ALARM testowy")
+        print(" [7] Kreator Stacji SRK")
+        print(" [8] Zdalna Konfig. Node")
+        print(string.rep("-", 26))
         term.setTextColor(colors.lightGray)
-        term.write("1:Wez ")
+        print(" Wybierz opcje [1-8]")
     end
 
-    -- Karta 2: Logi
-    if aktywnaKarta == 2 then
-        term.setBackgroundColor(colors.blue)
-        term.setTextColor(colors.white)
-        term.write("[2]LOG")
-    else
-        term.setBackgroundColor(colors.gray)
-        term.setTextColor(colors.lightGray)
-        term.write("2:Log ")
-    end
-
-    -- Karta 3: Baza
-    if aktywnaKarta == 3 then
-        term.setBackgroundColor(colors.blue)
-        term.setTextColor(colors.white)
-        term.write("[3]BAZ")
-    else
-        term.setBackgroundColor(colors.gray)
-        term.setTextColor(colors.lightGray)
-        term.write("3:Baz ")
-    end
-
-    -- Karta 4: Tablica
-    if aktywnaKarta == 4 then
-        term.setBackgroundColor(colors.blue)
-        term.setTextColor(colors.white)
-        term.write("[4]TAB")
-    else
-        term.setBackgroundColor(colors.gray)
-        term.setTextColor(colors.lightGray)
-        term.write("4:Tab ")
-    end
-
-    -- Karta 5: Akcje / Reboot Manager
-    if aktywnaKarta == 5 then
+    -- Okno dialogowe potwierdzenia Rebootu
+    if trybRebootConfirm then
+        term.setCursorPos(1, 7)
         term.setBackgroundColor(colors.red)
         term.setTextColor(colors.white)
-        term.write("[5]CMD")
-    else
-        term.setBackgroundColor(colors.gray)
-        term.setTextColor(colors.lightGray)
-        term.write("5:Cmd")
+        print("==========================")
+        local celTxt = "   RESTART: " .. tostring(rebootTargetTyp) .. " "
+        if rebootTargetTyp == "SINGLE" then celTxt = string.format("   RESTART ID #%d   ", rebootSingleId or 0) end
+        print(celTxt)
+        print("  Potwierdzasz operacje?  ")
+        print("   [T] TAK     [N] NIE    ")
+        print("==========================")
+        term.setBackgroundColor(colors.black)
     end
-
-    term.setBackgroundColor(colors.black)
 end
 
--- Formularz wprowadzania ID dla pojedynczego restartu
-local function restartWybranegoIDModal(serverId)
-    term.clear()
-    term.setCursorPos(1, 1)
-    term.setBackgroundColor(colors.red)
-    term.setTextColor(colors.white)
-    print("====== REBOOT DEDYKOWANY ======")
-    term.setBackgroundColor(colors.black)
-
-    print("\nWpisz numer ID komputera:")
-    term.setTextColor(colors.yellow)
-    write("> #")
-    term.setTextColor(colors.white)
-    local inputStr = read()
-    local targetId = tonumber(inputStr)
-
-    if not targetId or targetId < 0 then
-        term.setTextColor(colors.red)
-        print("\n[!] Nieprawidlowy numer ID!")
-        sleep(1)
-        return
-    end
-
-    rebootTargetTyp = "SINGLE"
-    rebootSingleId = targetId
-    trybRebootConfirm = true
-end
-
--- Modalna edycja wiersza tablicy
 local function edytujWierszModal(serverId)
     term.clear()
     term.setCursorPos(1, 1)
     term.setBackgroundColor(colors.blue)
     term.setTextColor(colors.white)
-    print("====== EDYCJA WIERSZA ======")
+    print("==========================")
+    print("  EDYCJA TABLICY PALCOWEJ ")
+    print("==========================")
     term.setBackgroundColor(colors.black)
 
-    print("\nNumer wiersza (np. 1, 2...):")
-    term.setTextColor(colors.yellow)
-    write("> ")
-    term.setTextColor(colors.white)
-    local liniaStr = read()
-    local nr = tonumber(liniaStr)
-
-    if not nr or nr < 1 then
-        term.setTextColor(colors.red)
-        print("\n[!] Nieprawidlowy numer wiersza!")
-        sleep(1)
-        return
-    end
-
-    print("\nTekst do wyslania:")
-    term.setTextColor(colors.yellow)
-    write("> ")
-    term.setTextColor(colors.white)
+    write("Numer Linii [1-5]: ")
+    local linia = tonumber(read()) or 1
+    write("Tekst: ")
     local tekst = read()
 
-    dodajWpis(string.format("Wyslano L%d: %s", nr, tekst), colors.yellow)
-    rednet.broadcast({ typ = "USTAW_TEKST_TABLICY", linia = nr, tekst = tekst }, PROTOKOL)
-    if serverId then
-        rednet.send(serverId, { typ = "USTAW_TEKST_TABLICY", linia = nr, tekst = tekst }, PROTOKOL)
-    end
+    local msg = {
+        typ = "USTAW_TEKST_TABLICY",
+        linia = linia,
+        tekst = tekst
+    }
 
-    term.setTextColor(colors.green)
-    print("\n[OK] Wyslano tekst do tablicy!")
-    sleep(1.2)
+    if serverId then rednet.send(serverId, msg, PROTOKOL) end
+    rednet.broadcast(msg, PROTOKOL)
+
+    dodajWpis(string.format("Ustawiono L%d: %s", linia, tekst), colors.yellow)
+    print("Wyslano polecenie zmiana wiersza!")
+    sleep(1)
 end
 
--- Wykonanie polecenia zdalnego restartu w zależności od celu
-local function wykonajReboot(serverId)
-    trybRebootConfirm = false
+local function restartWybranegoIDModal(serverId)
+    term.clear()
+    term.setCursorPos(1, 1)
+    term.setBackgroundColor(colors.red)
+    term.setTextColor(colors.white)
+    print("==========================")
+    print(" RESTART DEDYKOWANEGO ID  ")
+    print("==========================")
+    term.setBackgroundColor(colors.black)
 
-    if rebootTargetTyp == "ALL" then
-        dodajWpis("Wysylanie REBOOT CALEJ SIECI", colors.red)
-        rednet.broadcast({ typ = "REBOOT_ALL" }, PROTOKOL)
-        if serverId then rednet.send(serverId, { typ = "REBOOT_ALL" }, PROTOKOL) end
-        sleep(0.5)
-        os.reboot()
-
-    elseif rebootTargetTyp == "SERVER" then
-        dodajWpis("Wysylanie REBOOT SERWERA...", colors.red)
-        if serverId then rednet.send(serverId, { typ = "REBOOT", targetId = serverId }, PROTOKOL) end
-
-    elseif rebootTargetTyp == "DISPLAY" then
-        dodajWpis("Wysylanie REBOOT TABLIC...", colors.orange)
-        rednet.broadcast({ typ = "REBOOT", targetTryb = "DISPLAY" }, PROTOKOL)
-
-    elseif rebootTargetTyp == "CLIENT" then
-        dodajWpis("Wysylanie REBOOT POSTERUNKOW", colors.orange)
-        rednet.broadcast({ typ = "REBOOT", targetTryb = "CLIENT" }, PROTOKOL)
-
-    elseif rebootTargetTyp == "SINGLE" and rebootSingleId then
-        dodajWpis(string.format("Wysylanie REBOOT do #%d...", rebootSingleId), colors.yellow)
-        rednet.send(rebootSingleId, { typ = "REBOOT", targetId = rebootSingleId }, PROTOKOL)
-        rednet.broadcast({ typ = "REBOOT", targetId = rebootSingleId }, PROTOKOL)
-        if rebootSingleId == os.getComputerID() then
-            sleep(0.5)
-            os.reboot()
-        end
+    write("Wpisz ID komputera: #")
+    local tId = tonumber(read())
+    if tId then
+        rebootSingleId = tId
+        rebootTargetTyp = "SINGLE"
+        trybRebootConfirm = true
+    else
+        print("Blad: Nieprawidlowy numer ID!")
+        sleep(1)
     end
 end
 
@@ -265,149 +301,36 @@ local function otworzZdalnaKonfiguracjeModal(serverId)
     sleep(1.5)
 end
 
--- Rysowanie zawartości ekranu
-local function odswiezEkran(serverId)
-    term.clear()
-    rysujPasekKart()
+local function wykonajReboot(serverId)
+    trybRebootConfirm = false
+    if rebootTargetTyp == "ALL" then
+        dodajWpis("Wysylanie REBOOT CALEJ SIECE", colors.red)
+        rednet.broadcast({ typ = "REBOOT_ALL" }, PROTOKOL)
+        if serverId then rednet.send(serverId, { typ = "REBOOT_ALL" }, PROTOKOL) end
+        sleep(0.5)
+        os.reboot()
 
-    term.setCursorPos(1, 2)
-    term.setTextColor(colors.lightGray)
-    local statusSerwera = serverId and ("SRV #" .. serverId) or "LACZENIE..."
-    print(string.format("Stan: %-8s Czas: %s", statusSerwera, textutils.formatTime(os.time(), true)))
-    print(string.rep("-", 26))
+    elseif rebootTargetTyp == "SERVER" then
+        dodajWpis("Wysylanie REBOOT SERWERA...", colors.red)
+        if serverId then rednet.send(serverId, { typ = "REBOOT", targetId = serverId }, PROTOKOL) end
 
-    -- ================= KARTA 1: URZĄDZENIA =================
-    if aktywnaKarta == 1 then
-        term.setTextColor(colors.yellow)
-        print(string.format("%-4s %-12s %s", "ID", "POSTERUNEK", "STATUS"))
-        term.setTextColor(colors.white)
+    elseif rebootTargetTyp == "DISPLAY" then
+        dodajWpis("Wysylanie REBOOT TABLIC...", colors.orange)
+        rednet.broadcast({ typ = "REBOOT", targetTryb = "DISPLAY" }, PROTOKOL)
 
-        local teraz = os.clock()
-        local count = 0
-        for id, dane in pairs(klienci) do
-            count = count + 1
-            local online = (teraz - dane.lastSeen) <= TIMEOUT_SEK
-            
-            if online then
-                term.setTextColor(colors.green)
-                local statusDisplay = dane.status or "OK"
-                print(string.format("#%-3d %-12s %s", id, (dane.nazwa or ""):sub(1,12), statusDisplay:sub(1,7)))
-            else
-                term.setTextColor(colors.red)
-                print(string.format("#%-3d %-12s OFFLINE", id, (dane.nazwa or ""):sub(1,12)))
-            end
+    elseif rebootTargetTyp == "CLIENT" then
+        dodajWpis("Wysylanie REBOOT POSTERUNKOW", colors.orange)
+        rednet.broadcast({ typ = "REBOOT", targetTryb = "CLIENT" }, PROTOKOL)
+
+    elseif rebootTargetTyp == "SINGLE" and rebootSingleId then
+        dodajWpis(string.format("Wysylanie REBOOT do #%d...", rebootSingleId), colors.yellow)
+        rednet.send(rebootSingleId, { typ = "REBOOT", targetId = rebootSingleId }, PROTOKOL)
+        rednet.broadcast({ typ = "REBOOT", targetId = rebootSingleId }, PROTOKOL)
+        if rebootSingleId == os.getComputerID() then
+            sleep(0.5)
+            os.reboot()
         end
-
-        if count == 0 then
-            term.setTextColor(colors.gray)
-            print("\n Brak zarejestrowanych")
-            print(" wezlow w sieci.")
-        end
-
-    -- ================= KARTA 2: LOGI TELEMETRII =============
-    elseif aktywnaKarta == 2 then
-        if #logi == 0 then
-            term.setTextColor(colors.gray)
-            print("\n Brak wpisow w pamieci.")
-        else
-            for i = 1, math.min(#logi, 15) do
-                local wpis = logi[i]
-                term.setTextColor(wpis.kolor)
-                print(wpis.tekst:sub(1, 26))
-            end
-        end
-
-    -- ================= KARTA 3: BAZA POCIĄGÓW ===============
-    elseif aktywnaKarta == 3 then
-        term.setTextColor(colors.yellow)
-        print(string.format("%-5s %-10s %s", "CZAS", "PUNKT", "SKLAD"))
-        print(string.rep("-", 26))
-
-        if #bazaPrzejazdow == 0 then
-            term.setTextColor(colors.gray)
-            print("\n Brak historii przejazdow.")
-            print(" [R] Pobierz z serwera")
-        else
-            local startIdx = math.max(1, #bazaPrzejazdow - 12)
-            for i = #bazaPrzejazdow, startIdx, -1 do
-                local r = bazaPrzejazdow[i]
-                local czasStr = (r.czas_gry or (r.timestamp and r.timestamp:sub(12,16)) or "--:--"):sub(1,5)
-                local punktStr = (r.posterunek or "Trasa"):sub(1, 9)
-                local pociagStr = (r.nazwa_pociagu or r.train_model or "Pociag"):sub(1, 10)
-
-                term.setTextColor(colors.cyan)
-                io.write(string.format("%-5s ", czasStr))
-                term.setTextColor(colors.white)
-                io.write(string.format("%-9s ", punktStr))
-                term.setTextColor(colors.orange)
-                print(pociagStr)
-            end
-        end
-
-    -- ================= KARTA 4: TESTOWANIE TABLICY =========
-    elseif aktywnaKarta == 4 then
-        term.setTextColor(colors.yellow)
-        print(" --- STEROWANIE TABLICA ---")
-        term.setTextColor(colors.white)
-        print(" [S] Skanuj tablice w sieci")
-        print(" [E] Edycja wiersza tablicy")
-        print(" [T] Wykonaj test wzorca")
-        print(" [C] Wyczysc cala tablice")
-        print(" [R] Przywroc tryb ODJAZDY")
-        print(string.rep("-", 26))
-
-        term.setTextColor(colors.cyan)
-        local count = 0
-        for id, t in pairs(wykryteTablice) do
-            count = count + 1
-            print(string.format(" #%-3d %-9s %dx%d", id, (t.typDisp or "Disp"):sub(1,9), t.szer or 0, t.wys or 0))
-        end
-        if count == 0 then
-            term.setTextColor(colors.gray)
-            print(" Brak informacji o tablicy.")
-            print(" Wcisnij [S] aby skanowac.")
-        end
-
-    -- ================= KARTA 5: REBOOT MANAGER ==============
-    elseif aktywnaKarta == 5 then
-        term.setTextColor(colors.red)
-        print(" === ZDARZENIA I REBOOT ===")
-        term.setTextColor(colors.white)
-        print(" [1] Reboot CALEJ sieci")
-        print(" [2] Reboot SERWERA")
-        print(" [3] Reboot TABLIC")
-        print(" [4] Reboot POSTERUNKOW")
-        print(" [5] Reboot WYBRANEGO ID")
-        print(" [6] Wyslij ALARM testowy")
-        print(" [7] Kreator Stacji SRK")
-        print(" [8] Zdalna Konfig. Node")
-        print(string.rep("-", 26))
-        term.setTextColor(colors.lightGray)
-        print(" Wybierz opcje [1-8]")
     end
-
-    -- Okno dialogowe potwierdzenia Rebootu
-    if trybRebootConfirm then
-        term.setCursorPos(1, 7)
-        term.setBackgroundColor(colors.red)
-        term.setTextColor(colors.white)
-        print("==========================")
-        local celTxt = "   RESTART: " .. rebootTargetTyp .. " "
-        if rebootTargetTyp == "SINGLE" then celTxt = string.format("   RESTART ID #%d   ", rebootSingleId or 0) end
-        print(celTxt)
-        print("  Potwierdzasz operacje?  ")
-        print("   [T] TAK     [N] NIE    ")
-        print("==========================")
-        term.setBackgroundColor(colors.black)
-    end
-
-    -- Dolny pasek informacyjny
-    term.setCursorPos(1, 20)
-    term.setBackgroundColor(colors.gray)
-    term.setTextColor(colors.white)
-    term.clearLine()
-    term.write("[1-5]Kart | [X]Reboot | [Q]")
-    term.setBackgroundColor(colors.black)
 end
 
 -- Inicjalizacja połączenia
@@ -473,10 +396,6 @@ while true do
 
             elseif msg.typ == "BAZA_PRZEJAZDOW" and msg.baza then
                 bazaPrzejazdow = msg.baza
-                odswiezEkran(serverId)
-
-            elseif msg.typ == "SYNC_KLIENCI" and msg.klienci then
-                klienci = msg.klienci
                 odswiezEkran(serverId)
 
             elseif msg.typ == "ODPOWIEDZ_TABLICA" then
@@ -603,11 +522,6 @@ while true do
                     if fs.exists("station_wizard.lua") then
                         shell.run("station_wizard.lua")
                     end
-                    local tmr = os.startTimer(0.1)
-                    while true do
-                        local ev, idT = os.pullEvent()
-                        if ev == "timer" and idT == tmr then break end
-                    end
                 end
                 odswiezEkran(serverId)
             elseif p1 == keys.eight or p1 == keys.numPad8 then
@@ -629,42 +543,19 @@ while true do
                 logi = {}
                 dodajWpis("Wyczyszczono logi lokalne.", colors.orange)
                 odswiezEkran(serverId)
-
-            -- Akcje na Karcie 4 (Tablica)
-            elseif aktywnaKarta == 4 then
-                if p1 == keys.e then
-                    edytujWierszModal(serverId)
-                    odswiezEkran(serverId)
-                elseif p1 == keys.s then
-                    dodajWpis("Skanowanie tablic w sieci...", colors.yellow)
-                    rednet.broadcast({ typ = "ZAPYTANIE_TABLICA" }, PROTOKOL)
-                    if serverId then rednet.send(serverId, { typ = "ZAPYTANIE_TABLICA" }, PROTOKOL) end
-                    odswiezEkran(serverId)
-                elseif p1 == keys.t then
-                    dodajWpis("Wyslano wzorzec testowy.", colors.cyan)
-                    rednet.broadcast({ typ = "TEST_TABLICY" }, PROTOKOL)
-                    if serverId then rednet.send(serverId, { typ = "TEST_TABLICY" }, PROTOKOL) end
-                    odswiezEkran(serverId)
-                elseif p1 == keys.c then
-                    dodajWpis("Wyczyszczono tablice.", colors.orange)
-                    rednet.broadcast({ typ = "WYCZYSC_TABLICE" }, PROTOKOL)
-                    if serverId then rednet.send(serverId, { typ = "WYCZYSC_TABLICE" }, PROTOKOL) end
-                    odswiezEkran(serverId)
-                elseif p1 == keys.r then
-                    dodajWpis("Przywrocono tryb ODJAZDY.", colors.green)
-                    rednet.broadcast({ typ = "RESET_TABLICY" }, PROTOKOL)
-                    if serverId then rednet.send(serverId, { typ = "RESET_TABLICY" }, PROTOKOL) end
-                    odswiezEkran(serverId)
-                elseif p1 == keys.x then
-                    rebootTargetTyp = "ALL"
-                    trybRebootConfirm = true
-                    odswiezEkran(serverId)
-                elseif p1 == keys.q then
-                    term.clear()
-                    term.setCursorPos(1, 1)
-                    print("Wylaczono mobilny monitor.")
-                    break
-                end
+            elseif p1 == keys.e and aktywnaKarta == 4 then
+                edytujWierszModal(serverId)
+                odswiezEkran(serverId)
+            elseif p1 == keys.s and aktywnaKarta == 4 then
+                dodajWpis("Skanowanie tablic w sieci...", colors.yellow)
+                rednet.broadcast({ typ = "ZAPYTANIE_TABLICA" }, PROTOKOL)
+                if serverId then rednet.send(serverId, { typ = "ZAPYTANIE_TABLICA" }, PROTOKOL) end
+                odswiezEkran(serverId)
+            elseif p1 == keys.t and aktywnaKarta == 4 then
+                dodajWpis("Wyslano wzorzec testowy.", colors.cyan)
+                rednet.broadcast({ typ = "TEST_TABLICY" }, PROTOKOL)
+                if serverId then rednet.send(serverId, { typ = "TEST_TABLICY" }, PROTOKOL) end
+                odswiezEkran(serverId)
             elseif p1 == keys.x then
                 rebootTargetTyp = "ALL"
                 trybRebootConfirm = true
@@ -797,12 +688,6 @@ while true do
                     if fs.exists("station_wizard.lua") then
                         shell.run("station_wizard.lua")
                     end
-                    local tmr = os.startTimer(0.1)
-                    while true do
-                        local ev, idT = os.pullEvent()
-                        if ev == "timer" and idT == tmr then break end
-                    end
-                    odswiezEkran(serverId)
                 elseif y == 12 then -- [8] Zdalna Konfiguracja Node
                     otworzZdalnaKonfiguracjeModal(serverId)
                     odswiezEkran(serverId)
