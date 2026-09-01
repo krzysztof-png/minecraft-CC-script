@@ -436,7 +436,7 @@ while true do
             if msg.typ == "SYNC_KLIENCI" and msg.klienci then
                 klienci = msg.klienci
                 odswiezEkran(serverId)
-            if msg.typ == "NOWY_LOG" then
+            elseif msg.typ == "NOWY_LOG" then
                 local kolor = colors.white
                 if msg.kategoria == "PRZEJAZD" then kolor = colors.lightBlue end
                 if msg.kategoria == "ALARM"    then kolor = colors.red end
