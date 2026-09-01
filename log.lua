@@ -194,6 +194,77 @@ local function wykonajReboot(serverId)
     end
 end
 
+local function otworzZdalnaKonfiguracjeModal(serverId)
+    term.clear()
+    term.setCursorPos(1, 1)
+    term.setBackgroundColor(colors.blue)
+    term.setTextColor(colors.white)
+    print("==========================")
+    print(" ZDALNA KONFIGURACJA NODE ")
+    print("==========================")
+    term.setBackgroundColor(colors.black)
+
+    write("Wpisz ID komputera: #")
+    term.setTextColor(colors.yellow)
+    local targetId = tonumber(read())
+    term.setTextColor(colors.white)
+
+    if not targetId then
+        print("[!] Anulowano.")
+        sleep(1.0)
+        return
+    end
+
+    print(string.format("\nZdalna ROLA (Autostart) #%d:", targetId))
+    print(" [1] Central Server")
+    print(" [2] Client Detekcji")
+    print(" [3] Tablica 3x1")
+    print(" [4] Tablica Peron")
+    print(" [5] Tablica Glowna")
+    print(" [6] Pocket PC")
+    write("Wybór [1-6, puste=bez zm]: ")
+    
+    local selectedRole = nil
+    local chRola = read()
+    if chRola == "1" then selectedRole = "server" end
+    if chRola == "2" then selectedRole = "client" end
+    if chRola == "3" then selectedRole = "electric_display" end
+    if chRola == "4" then selectedRole = "platform_display" end
+    if chRola == "5" then selectedRole = "display" end
+    if chRola == "6" then selectedRole = "log" end
+
+    print("\nZdalna Stacja ID [GD/SP]:")
+    write("Kod stacji [puste=bez zm]: ")
+    term.setTextColor(colors.yellow)
+    local inputStacja = read()
+    term.setTextColor(colors.white)
+
+    print("\nRestartowac komputer?")
+    write(" [T] TAK  [N] NIE [dom. T]: ")
+    local chReboot = read():lower()
+    local doReboot = (chReboot ~= "n")
+
+    local sysCfg = selectedRole and { rola = selectedRole } or nil
+    local nodeCfg = (inputStacja ~= "") and { stacja = inputStacja, idStacji = inputStacja } or nil
+
+    local payload = {
+        typ = "USTAW_CONFIG_WEEZLA",
+        targetId = targetId,
+        systemConfig = sysCfg,
+        nodeConfig = nodeCfg,
+        reboot = doReboot
+    }
+
+    if serverId then rednet.send(serverId, payload, PROTOKOL) end
+    rednet.send(targetId, payload, PROTOKOL)
+    rednet.broadcast(payload, PROTOKOL)
+
+    term.setTextColor(colors.green)
+    print(string.format("\nWyslano konfiguracje do ID #%d!", targetId))
+    term.setTextColor(colors.white)
+    sleep(1.5)
+end
+
 -- Rysowanie zawartości ekranu
 local function odswiezEkran(serverId)
     term.clear()
@@ -309,9 +380,10 @@ local function odswiezEkran(serverId)
         print(" [5] Reboot WYBRANEGO ID")
         print(" [6] Wyslij ALARM testowy")
         print(" [7] Kreator Stacji SRK")
+        print(" [8] Zdalna Konfig. Node")
         print(string.rep("-", 26))
         term.setTextColor(colors.lightGray)
-        print(" Wybierz opcje [1-7]")
+        print(" Wybierz opcje [1-8]")
     end
 
     -- Okno dialogowe potwierdzenia Rebootu
@@ -352,6 +424,7 @@ rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL)
 rednet.broadcast({ typ = "ZAPYTANIE_TABLICA" }, PROTOKOL)
 
 local timerOdswiezania = os.startTimer(1)
+local timerPing = os.startTimer(3)
 
 while true do
     local event, p1, p2, p3 = os.pullEvent()
@@ -360,6 +433,9 @@ while true do
     if event == "rednet_message" and p3 == PROTOKOL then
         local senderId, msg = p1, p2
         if type(msg) == "table" then
+            if msg.typ == "SYNC_KLIENCI" and msg.klienci then
+                klienci = msg.klienci
+                odswiezEkran(serverId)
             if msg.typ == "NOWY_LOG" then
                 local kolor = colors.white
                 if msg.kategoria == "PRZEJAZD" then kolor = colors.lightBlue end
@@ -425,6 +501,26 @@ while true do
     elseif event == "timer" and p1 == timerOdswiezania then
         odswiezEkran(serverId)
         timerOdswiezania = os.startTimer(1)
+
+    elseif event == "timer" and p1 == timerPing then
+        serverId = pobierzServerId()
+        if serverId then
+            local sysCfg = nil
+            if fs.exists("system_config.json") then
+                local f = fs.open("system_config.json", "r")
+                sysCfg = textutils.unserializeJSON(f.readAll())
+                f.close()
+            end
+            rednet.send(serverId, {
+                typ = "PING",
+                nazwa = "Pocket_PC_" .. os.getComputerID(),
+                tryb = "POCKET",
+                rola = (sysCfg and sysCfg.rola) or "log",
+                status = "ONLINE",
+                systemConfig = sysCfg
+            }, PROTOKOL)
+        end
+        timerPing = os.startTimer(3)
 
     -- 3. Obsługa klawiatury
     elseif event == "key" then
@@ -500,6 +596,11 @@ while true do
                         local ev, idT = os.pullEvent()
                         if ev == "timer" and idT == tmr then break end
                     end
+                end
+                odswiezEkran(serverId)
+            elseif p1 == keys.eight or p1 == keys.numPad8 then
+                if aktywnaKarta == 5 then
+                    otworzZdalnaKonfiguracjeModal(serverId)
                 end
                 odswiezEkran(serverId)
             elseif p1 == keys.tab then
@@ -689,6 +790,9 @@ while true do
                         local ev, idT = os.pullEvent()
                         if ev == "timer" and idT == tmr then break end
                     end
+                    odswiezEkran(serverId)
+                elseif y == 12 then -- [8] Zdalna Konfiguracja Node
+                    otworzZdalnaKonfiguracjeModal(serverId)
                     odswiezEkran(serverId)
                 end
             end

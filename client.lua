@@ -375,12 +375,22 @@ while true do
     elseif event == "timer" and p1 == pingTimer then
         serverId = pobierzServerId()
         if serverId then
+            local sysCfg = nil
+            if fs.exists("system_config.json") then
+                local f = fs.open("system_config.json", "r")
+                sysCfg = textutils.unserializeJSON(f.readAll())
+                f.close()
+            end
             rednet.send(serverId, {
                 typ = "PING",
                 nazwa = config.nazwaKlienta,
                 tryb = config.tryb,
+                rola = (sysCfg and sysCfg.rola) or "client",
+                idStacji = config.idStacji or config.stacja or "ST",
                 status = "ONLINE (" .. #znanePeryferia .. " dev)",
-                pociag = ostatnioWykrytyGlowny
+                pociag = ostatnioWykrytyGlowny,
+                systemConfig = sysCfg,
+                nodeConfig = config
             }, PROTOKOL)
         end
         pingTimer = os.startTimer(config.interwalPing)
@@ -455,7 +465,7 @@ while true do
 
         loopTimer = os.startTimer(0.1)
 
-    -- 4. Remote commands (REBOOT)
+    -- 4. Remote commands (REBOOT, USTAW_CONFIG_WEEZLA, ZAPYTANIE_CONFIG_WEEZLA)
     elseif event == "rednet_message" and p3 == PROTOKOL then
         local senderId, msg = p1, p2
         if type(msg) == "table" and (msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL") then
@@ -470,6 +480,46 @@ while true do
                 print("Rebooting computer...")
                 sleep(0.5)
                 os.reboot()
+            end
+
+        elseif type(msg) == "table" and msg.typ == "USTAW_CONFIG_WEEZLA" then
+            local tId = msg.targetId
+            if not tId or tId == MOJE_ID then
+                if msg.systemConfig then
+                    local f = fs.open("system_config.json", "w")
+                    f.write(textutils.serializeJSON(msg.systemConfig))
+                    f.close()
+                end
+                if msg.nodeConfig then
+                    local f = fs.open(CONFIG_FILE, "w")
+                    f.write(textutils.serializeJSON(msg.nodeConfig))
+                    f.close()
+                end
+                rednet.send(senderId, { typ = "POTWIERDZENIE_CONFIG", id = MOJE_ID, ok = true }, PROTOKOL)
+                if msg.reboot ~= false then
+                    term.clear()
+                    term.setCursorPos(1, 1)
+                    print("Zdalna zmiana konfiguracji! Restarting...")
+                    sleep(0.5)
+                    os.reboot()
+                end
+            end
+
+        elseif type(msg) == "table" and msg.typ == "ZAPYTANIE_CONFIG_WEEZLA" then
+            local tId = msg.targetId
+            if not tId or tId == MOJE_ID then
+                local sysCfg = nil
+                if fs.exists("system_config.json") then
+                    local f = fs.open("system_config.json", "r")
+                    sysCfg = textutils.unserializeJSON(f.readAll())
+                    f.close()
+                end
+                rednet.send(senderId, {
+                    typ = "ODPOWIEDZ_CONFIG_WEEZLA",
+                    id = MOJE_ID,
+                    systemConfig = sysCfg,
+                    nodeConfig = config
+                }, PROTOKOL)
             end
         end
     end

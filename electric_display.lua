@@ -478,6 +478,25 @@ while true do
                 scrollOffset = 0
                 odswiezObuMonitorow()
 
+            elseif msg.typ == "USTAW_CONFIG_WEEZLA" then
+                local tId = msg.targetId
+                if not tId or tId == MOJE_ID then
+                    if msg.systemConfig then
+                        local f = fs.open("system_config.json", "w")
+                        f.write(textutils.serializeJSON(msg.systemConfig))
+                        f.close()
+                    end
+                    if msg.nodeConfig then
+                        zapiszConfig(msg.nodeConfig)
+                    end
+                    rednet.send(senderId, { typ = "POTWIERDZENIE_CONFIG", id = MOJE_ID, ok = true }, PROTOKOL)
+                    if msg.reboot ~= false then
+                        print("Zdalna zmiana konfiguracji! Restart...")
+                        sleep(0.5)
+                        os.reboot()
+                    end
+                end
+
             elseif msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL" then
                 local tId = msg.targetId
                 local tTryb = msg.targetTryb
@@ -518,11 +537,21 @@ while true do
     elseif event == "timer" and p1 == pingTimer then
         serverId = pobierzServerId()
         if serverId then
+            local sysCfg = nil
+            if fs.exists("system_config.json") then
+                local f = fs.open("system_config.json", "r")
+                sysCfg = textutils.unserializeJSON(f.readAll())
+                f.close()
+            end
             rednet.send(serverId, {
                 typ = "PING",
                 nazwa = string.format("Tablica3x1_Peron%s", config.peron),
                 tryb = "DISPLAY_3X1",
-                status = string.format("L:T%s R:T%s", config.torLewy, config.torPrawy)
+                rola = (sysCfg and sysCfg.rola) or "electric_display",
+                idStacji = config.stacja or "ST",
+                status = string.format("L:T%s R:T%s", config.torLewy, config.torPrawy),
+                systemConfig = sysCfg,
+                nodeConfig = config
             }, PROTOKOL)
         end
         pingTimer = os.startTimer(2.0)

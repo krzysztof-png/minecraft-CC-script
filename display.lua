@@ -273,6 +273,23 @@ while true do
                 odswiezTablice()
                 if serverId then rednet.send(serverId, { typ = "POBIERZ_BAZE" }, PROTOKOL) end
 
+            elseif msg.typ == "USTAW_CONFIG_WEEZLA" then
+                local tId = msg.targetId
+                local myId = os.getComputerID()
+                if not tId or tId == myId then
+                    if msg.systemConfig then
+                        local f = fs.open("system_config.json", "w")
+                        f.write(textutils.serializeJSON(msg.systemConfig))
+                        f.close()
+                    end
+                    rednet.send(senderId, { typ = "POTWIERDZENIE_CONFIG", id = myId, ok = true }, PROTOKOL)
+                    if msg.reboot ~= false then
+                        print("Zdalna zmiana konfiguracji! Restart...")
+                        sleep(0.5)
+                        os.reboot()
+                    end
+                end
+
             elseif msg.typ == "REBOOT" or msg.typ == "REBOOT_ALL" then
                 local tId = msg.targetId
                 local tTryb = msg.targetTryb
@@ -289,11 +306,19 @@ while true do
     elseif event == "timer" and p1 == pingTimer then
         serverId = pobierzServerId()
         if serverId then
+            local sysCfg = nil
+            if fs.exists("system_config.json") then
+                local f = fs.open("system_config.json", "r")
+                sysCfg = textutils.unserializeJSON(f.readAll())
+                f.close()
+            end
             rednet.send(serverId, {
                 typ = "PING",
                 nazwa = "Tablica_" .. os.getComputerID(),
                 tryb = "DISPLAY",
-                status = string.format("%dx%d", szerokosc, wysokosc)
+                rola = (sysCfg and sysCfg.rola) or "display",
+                status = string.format("%dx%d", szerokosc, wysokosc),
+                systemConfig = sysCfg
             }, PROTOKOL)
         end
         pingTimer = os.startTimer(2)

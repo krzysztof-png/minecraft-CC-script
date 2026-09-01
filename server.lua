@@ -51,7 +51,23 @@ end
 rednet.open(peripheral.getName(modem))
 rednet.host(PROTOKOL, NAZWA_HOSTA)
 
-local klienci = {}
+local COMP_DB_FILE = "network_computers.json"
+
+local function wczytajBazeKomputerow()
+    if not fs.exists(COMP_DB_FILE) then return {} end
+    local f = fs.open(COMP_DB_FILE, "r")
+    local data = textutils.unserializeJSON(f.readAll()) or {}
+    f.close()
+    return data
+end
+
+local function zapiszBazeKomputerow(data)
+    local f = fs.open(COMP_DB_FILE, "w")
+    f.write(textutils.serializeJSON(data))
+    f.close()
+end
+
+local klienci = wczytajBazeKomputerow()
 local logiZdarzen = {}
 
 -- === BAZA DANYCH PRZEJAZDÓW ===
@@ -245,15 +261,47 @@ while true do
 
             -- Heartbeat i meldowanie
             if msg.typ == "PING" then
-                klienci[senderId] = {
-                    nazwa    = msg.nazwa or ("Klient_" .. senderId),
-                    tryb     = msg.tryb or "BEACON",
-                    status   = msg.status or "OK",
-                    pociag   = msg.pociag or nil,
-                    lastSeen = os.clock()
+                local kId = tostring(senderId)
+                local istniejacy = klienci[kId] or {}
+
+                klienci[kId] = {
+                    id           = senderId,
+                    nazwa        = msg.nazwa or istniejacy.nazwa or ("Klient_" .. senderId),
+                    tryb         = msg.tryb or istniejacy.tryb or "BEACON",
+                    rola         = msg.rola or istniejacy.rola or (msg.tryb and msg.tryb:lower()) or "client",
+                    idStacji     = msg.idStacji or msg.stacja or istniejacy.idStacji or "ST",
+                    status       = msg.status or "OK",
+                    pociag       = msg.pociag or nil,
+                    systemConfig = msg.systemConfig or istniejacy.systemConfig or { rola = msg.rola or "client" },
+                    nodeConfig   = msg.nodeConfig or istniejacy.nodeConfig or nil,
+                    lastSeen     = os.clock(),
+                    timestampLastSeen = os.date("!%Y-%m-%d %H:%M:%S")
                 }
+                zapiszBazeKomputerow(klienci)
                 rednet.send(senderId, { odp = "PONG_OK" }, PROTOKOL)
                 rednet.broadcast({ typ = "SYNC_KLIENCI", klienci = klienci }, PROTOKOL)
+
+            -- Zdalna konfiguracja węzłów i rola (autostart)
+            elseif msg.typ == "USTAW_CONFIG_WEEZLA" then
+                local tId = msg.targetId
+                if tId then
+                    dodajLog(string.format("Zdalna zmiana konfiguracji dla Node #%s", tostring(tId)), "SYSTEM")
+                    rednet.send(tId, msg, PROTOKOL)
+                    
+                    local kKey = tostring(tId)
+                    if klienci[kKey] then
+                        if msg.systemConfig then klienci[kKey].systemConfig = msg.systemConfig end
+                        if msg.nodeConfig then klienci[kKey].nodeConfig = msg.nodeConfig end
+                        if msg.systemConfig and msg.systemConfig.rola then klienci[kKey].rola = msg.systemConfig.rola end
+                        zapiszBazeKomputerow(klienci)
+                    end
+                end
+
+            elseif msg.typ == "ZAPYTANIE_CONFIG_WEEZLA" then
+                local tId = msg.targetId
+                if tId then
+                    rednet.send(tId, msg, PROTOKOL)
+                end
 
             -- Wykrycie i identyfikacja pociągu
             elseif msg.typ == "PRZEJAZD_POCIAGU" then
