@@ -411,11 +411,23 @@ local function odswiezEkran(serverId)
 end
 
 -- Inicjalizacja połączenia
+local serverId = nil
+local lastServerCheck = os.clock()
+
+local function pobierzServerId()
+    if not serverId or (os.clock() - lastServerCheck > 10) then
+        lastServerCheck = os.clock()
+        local id = rednet.lookup(PROTOKOL, SERWER_HOST)
+        if id then serverId = id end
+    end
+    return serverId
+end
+
 odswiezEkran(nil)
-local serverId = rednet.lookup(PROTOKOL, SERWER_HOST)
+serverId = pobierzServerId()
 while not serverId do
     sleep(1.5)
-    serverId = rednet.lookup(PROTOKOL, SERWER_HOST)
+    serverId = pobierzServerId()
 end
 
 dodajWpis("Polaczono z centrala #" .. serverId, colors.green)
